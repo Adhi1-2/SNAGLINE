@@ -7,8 +7,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List
 
-DEFAULT_WINDOW_SECONDS = 60
-DEFAULT_MAX_SAMPLES = 500
+DEFAULT_WINDOW_SECONDS = 120
+DEFAULT_MAX_SAMPLES = 1000
 
 @dataclass
 class DiagnosticMetrics:
