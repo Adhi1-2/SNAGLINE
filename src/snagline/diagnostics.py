@@ -8,12 +8,14 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 DEFAULT_WINDOW_SECONDS = 60
+DEFAULT_MAX_SAMPLES = 500
 
 @dataclass
 class DiagnosticMetrics:
     """In-memory telemetry metric container with counter and timing series."""
     counters: Dict[str, int] = field(default_factory=dict)
     timings: Dict[str, List[float]] = field(default_factory=dict)
+    max_samples: int = DEFAULT_MAX_SAMPLES
 
     def record_counter(self, name: str, increment: int = 1) -> None:
         """Increment named counter by specified non-negative amount."""
@@ -24,9 +26,12 @@ class DiagnosticMetrics:
         self.counters[name] = self.counters.get(name, 0) + increment
 
     def record_timing(self, name: str, value: float) -> None:
-        """Record sample value into named latency series."""
+        """Record sample value into named latency series with capacity cap."""
         if not name:
             raise ValueError("timing name cannot be empty")
         if name not in self.timings:
             self.timings[name] = []
-        self.timings[name].append(value)
+        series = self.timings[name]
+        if len(series) >= self.max_samples:
+            series.pop(0)
+        series.append(value)
