@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import math
+from typing import Dict
 
 class ScoreDecay:
     def __init__(self, half_life_seconds: float = 300.0) -> None:
@@ -16,3 +17,7 @@ class ScoreDecay:
             return score
         decay_factor = math.pow(0.5, elapsed_seconds / self.half_life)
         return score * decay_factor
+
+    def decay_batch(self, scores: Dict[str, float], elapsed_seconds: float) -> Dict[str, float]:
+        """Apply half-life decay across active score mappings."""
+        return {k: self.decay_score(v, elapsed_seconds) for k, v in scores.items()}
