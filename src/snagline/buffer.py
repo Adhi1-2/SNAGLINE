@@ -17,3 +17,7 @@ class BoundedEventBuffer:
             evicted = True
         self.items.append(item)
         return evicted
+
+    def clear(self) -> None:
+        """Atomically reset items without leaving stale references."""
+        self.items.clear()
