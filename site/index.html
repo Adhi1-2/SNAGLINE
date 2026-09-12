@@ -348,12 +348,6 @@ canvas#sig{width:100%;flex:1;min-height:190px;display:block}
 .flow-anim-title{display:flex;align-items:center;gap:.65rem;font-family:var(--mono);font-size:.7rem;
   letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
 .flow-anim-title .live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:beat 1.8s infinite}
-.flow-anim-controls{display:flex;align-items:center;gap:.5rem}
-.flow-btn{background:var(--surface);border:1px solid var(--line);color:var(--ink-2);font-family:var(--mono);
-  font-size:.68rem;padding:.32rem .75rem;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;
-  gap:.35rem;transition:all .2s var(--ease)}
-.flow-btn:hover{border-color:var(--line-2);color:var(--ink);background:var(--elevated)}
-.flow-btn.active{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
 
 .flow-stage{padding:clamp(1.5rem,3.2vw,2.5rem);display:grid;grid-template-columns:1fr 1.35fr 1fr;
   gap:clamp(1rem,2vw,2rem);align-items:stretch;position:relative;background:radial-gradient(ellipse at 50% 30%, rgba(0,212,255,0.03), transparent 70%)}
@@ -746,11 +740,6 @@ footer{border-top:1px solid var(--line);padding:2.75rem var(--pad);max-width:150
       <div class="flow-anim-title">
         <span class="live-dot"></span>
         <span>SNAGLINE Execution Pipeline &middot; Live Flow Simulation</span>
-      </div>
-      <div class="flow-anim-controls">
-        <button class="flow-btn" id="flowPlayBtn" title="Play / Pause Animation">⏸ Pause</button>
-        <button class="flow-btn" id="flowReplayBtn" title="Replay from Step 1">↺ Replay</button>
-        <button class="flow-btn" id="flowSpeedBtn" title="Change Animation Speed">Speed: 1x</button>
       </div>
     </div>
 
@@ -1862,12 +1851,9 @@ $$('[data-copy]').forEach(function(el){
 
 /* ═══════════════ PIPELINE FLOW ANIMATION ═══════════════ */
 (function(){
-  var playBtn = $('#flowPlayBtn');
-  var replayBtn = $('#flowReplayBtn');
-  var speedBtn = $('#flowSpeedBtn');
   var stepButtons = $$('[data-flow-step]');
 
-  if(!playBtn || !stepButtons.length) return;
+  if(!stepButtons.length) return;
 
   var STEPS = [
     {
@@ -1988,10 +1974,6 @@ $$('[data-copy]').forEach(function(el){
   ];
 
   var curStep = 0;
-  var isPlaying = true;
-  var speedMultiplier = 1;
-  var speedOptions = [1, 1.5, 2];
-  var speedIdx = 0;
   var timer = null;
 
   var elStepTag = $('#flowStepTag');
@@ -2067,59 +2049,28 @@ $$('[data-copy]').forEach(function(el){
   }
 
   function getStepDuration(){
-    var base = curStep === 4 ? 3200 : 2000;
-    return base / speedMultiplier;
+    return curStep === 4 ? 3200 : 2000;
   }
 
   function scheduleNext(){
     if(timer) clearTimeout(timer);
-    if(!isPlaying) return;
     timer = setTimeout(function(){
-      if(!isPlaying) return;
       nextStep();
       scheduleNext();
     }, getStepDuration());
   }
 
-  function setPlaying(play){
-    isPlaying = play;
-    playBtn.textContent = isPlaying ? '⏸ Pause' : '▶ Play';
-    if(isPlaying){
-      scheduleNext();
-    } else if(timer){
-      clearTimeout(timer);
-    }
-  }
-
-  playBtn.addEventListener('click', function(){
-    setPlaying(!isPlaying);
-  });
-
-  replayBtn.addEventListener('click', function(){
-    renderStep(0);
-    setPlaying(true);
-  });
-
-  speedBtn.addEventListener('click', function(){
-    speedIdx = (speedIdx + 1) % speedOptions.length;
-    speedMultiplier = speedOptions[speedIdx];
-    speedBtn.textContent = 'Speed: ' + speedMultiplier + 'x';
-    if(isPlaying){
-      scheduleNext();
-    }
-  });
-
   stepButtons.forEach(function(btn){
     btn.addEventListener('click', function(){
       var s = parseInt(btn.dataset.flowStep, 10);
       renderStep(s);
-      if(isPlaying) scheduleNext();
+      scheduleNext();
     });
   });
 
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState === 'visible'){
-      if(isPlaying) scheduleNext();
+      scheduleNext();
     } else if(timer){
       clearTimeout(timer);
     }
