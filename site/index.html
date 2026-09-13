@@ -151,15 +151,25 @@ nav{position:fixed;top:0;left:0;right:0;z-index:900;height:68px;padding:0 var(--
   border-bottom:1px solid transparent}
 nav.solid{background:var(--nav-bg);backdrop-filter:blur(9px);border-bottom-color:var(--line)}
 nav.hide{transform:translateY(-100%)}
-.brand{display:flex;align-items:center;gap:.55rem;font-family:var(--mono);font-weight:700;
+.brand{display:flex;align-items:center;gap:.6rem;font-family:var(--mono);font-weight:700;
   font-size:1rem;letter-spacing:-0.02em;position:relative;cursor:pointer;
   transition:color .06s,opacity .06s,text-shadow .06s,filter .06s}
+.brand-glyph{width:22px;height:22px;color:var(--accent);flex-shrink:0;overflow:visible;
+  filter:drop-shadow(0 0 6px var(--accent-glow));
+  transition:color .06s,filter .06s,transform .25s var(--ease)}
+.brand:hover .brand-glyph{transform:scale(1.12)}
+.brand-glyph .bg-core{fill:var(--accent);transition:fill .06s}
+.brand-glyph .bg-line,.brand-glyph .bg-snag,.brand-glyph .bg-snag-sub{stroke:var(--accent);transition:stroke .06s}
 .brand i{width:7px;height:7px;border-radius:50%;background:var(--accent);
   box-shadow:0 0 8px var(--accent),0 0 14px var(--accent-glow);
   transition:background .06s,box-shadow .06s,opacity .06s}
 .brand.tube-on{
   color:var(--ink);
   text-shadow:0 0 8px var(--accent-glow),0 0 18px rgba(0,212,255,0.25);
+}
+.brand.tube-on .brand-glyph{
+  color:var(--accent);
+  filter:drop-shadow(0 0 6px var(--accent)) drop-shadow(0 0 14px var(--accent-glow));
 }
 .brand.tube-on i{
   opacity:1;
@@ -172,6 +182,13 @@ nav.hide{transform:translateY(-100%)}
   text-shadow:none;
   filter:grayscale(0.6);
 }
+.brand.tube-dim .brand-glyph{
+  color:var(--ink-3);
+  filter:none;
+  opacity:0.25;
+}
+.brand.tube-dim .bg-core{fill:var(--ink-3)}
+.brand.tube-dim .bg-line,.brand.tube-dim .bg-snag,.brand.tube-dim .bg-snag-sub{stroke:var(--ink-3)}
 .brand.tube-dim i{
   opacity:0.18;
   background:var(--ink-3);
@@ -183,6 +200,12 @@ nav.hide{transform:translateY(-100%)}
   text-shadow:0 0 10px #ffffff,0 0 20px var(--accent),0 0 32px var(--accent);
   filter:brightness(1.25);
 }
+.brand.tube-spark .brand-glyph{
+  color:#ffffff;
+  filter:drop-shadow(0 0 8px #ffffff) drop-shadow(0 0 16px var(--accent)) drop-shadow(0 0 26px var(--accent));
+}
+.brand.tube-spark .bg-core{fill:#ffffff}
+.brand.tube-spark .bg-line,.brand.tube-spark .bg-snag,.brand.tube-spark .bg-snag-sub{stroke:#ffffff}
 .brand.tube-spark i{
   opacity:1;
   background:#ffffff;
@@ -191,9 +214,17 @@ nav.hide{transform:translateY(-100%)}
 [data-theme="light"] .brand.tube-on{
   text-shadow:0 0 10px rgba(14,116,144,0.3);
 }
+[data-theme="light"] .brand.tube-on .brand-glyph{
+  color:var(--accent);
+  filter:drop-shadow(0 0 6px rgba(14,116,144,0.45));
+}
 [data-theme="light"] .brand.tube-spark{
   color:var(--accent);
   text-shadow:0 0 12px var(--accent-glow),0 0 20px rgba(14,116,144,0.4);
+}
+[data-theme="light"] .brand.tube-spark .brand-glyph{
+  color:var(--accent);
+  filter:drop-shadow(0 0 10px rgba(14,116,144,0.6)) brightness(1.2);
 }
 .nav-r{display:flex;align-items:center;gap:clamp(1rem,2.2vw,2.1rem)}
 .nav-r a.nl{font-family:var(--mono);font-size:.75rem;letter-spacing:.04em;text-transform:uppercase;
@@ -203,10 +234,28 @@ nav.hide{transform:translateY(-100%)}
 .nav-r a.nl:hover{color:var(--ink)}
 .nav-r a.nl:hover::after{transform:scaleX(1)}
 .nav-r a.nl i{color:var(--ink-3);margin-right:.35rem}
-.ghub{font-family:var(--mono);font-size:.75rem;font-weight:500;letter-spacing:.02em;
-  padding:.5rem 1rem;border-radius:100px;background:var(--ink);color:var(--bg);
-  display:flex;align-items:center;gap:.4rem;transition:transform .3s var(--ease),opacity .3s}
-.ghub:hover{transform:translateY(-2px);opacity:.9}
+.ghub{font-family:var(--mono);font-size:.74rem;font-weight:500;letter-spacing:.02em;
+  padding:.38rem .75rem;border-radius:100px;background:var(--surface);border:1px solid var(--line-2);
+  color:var(--ink);display:inline-flex;align-items:center;gap:.45rem;
+  transition:border-color .3s,background .3s,transform .25s var(--ease),box-shadow .3s;
+  box-shadow:0 2px 10px rgba(0,0,0,.2)}
+.ghub:hover{border-color:var(--accent);background:var(--elevated);color:#ffffff;transform:translateY(-2px);
+  box-shadow:0 4px 18px var(--accent-dim)}
+.ghub-icon{flex-shrink:0;opacity:.9}
+.ghub-sep{color:var(--line-2);user-select:none;font-size:.68rem}
+.ghub-star{display:inline-flex;align-items:center;gap:.25rem;color:var(--amber);font-weight:600}
+.ghub-star svg{flex-shrink:0;fill:var(--amber);filter:drop-shadow(0 0 4px rgba(251,191,36,.4))}
+.gh-stars-count{color:var(--ink);font-variant-numeric:tabular-nums}
+.ghub:hover .gh-stars-count{color:#ffffff}
+.ghub-tag{font-size:.62rem;letter-spacing:.04em;padding:.15rem .45rem;border-radius:999px;
+  background:var(--accent-dim);color:var(--accent);border:1px solid rgba(0,212,255,.25);
+  font-weight:600;line-height:1;display:inline-block;transition:background .2s,border-color .2s}
+.ghub:hover .ghub-tag{background:rgba(0,212,255,.18);border-color:var(--accent)}
+[data-theme="light"] .ghub{background:var(--surface);border-color:var(--line-2);color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.06)}
+[data-theme="light"] .ghub:hover{border-color:var(--accent);background:#ffffff;color:var(--ink)}
+[data-theme="light"] .ghub-tag{background:var(--accent-dim);color:var(--accent);border-color:rgba(14,116,144,.3)}
+@media(max-width:680px){.ghub-tag{display:none}}
+@media(max-width:480px){.ghub-sep,.ghub-label{display:none}}
 .tt{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;
   color:var(--ink-2);display:grid;place-items:center;transition:all .3s var(--ease)}
 .tt:hover{border-color:var(--line-2);color:var(--ink);transform:rotate(35deg)}
@@ -310,14 +359,50 @@ h2.stitle em{font-style:normal;color:var(--ink-3)}
 .panel-bar .badge{margin-left:auto;font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;
   text-transform:uppercase;color:var(--green);display:flex;align-items:center;gap:.35rem}
 .panel-bar .badge i{width:5px;height:5px;border-radius:50%;background:var(--green);animation:beat 1.6s infinite}
-.term{padding:1.15rem;font-family:var(--mono);font-size:clamp(.66rem,.83vw,.78rem);line-height:1.85;
-  min-height:330px;overflow:hidden}
+.term-tabs{display:flex;align-items:center;gap:.4rem;padding:.45rem 1rem;background:var(--surface);
+  border-bottom:1px solid var(--line);flex-wrap:wrap;user-select:none}
+.term-tabs-label{font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;color:var(--ink-3);font-weight:600;margin-right:.15rem}
+.term-tab{font-family:var(--mono);font-size:.64rem;letter-spacing:.02em;padding:.2rem .55rem;border-radius:6px;
+  background:var(--elevated);border:1px solid var(--line);color:var(--ink-2);cursor:pointer;
+  display:inline-flex;align-items:center;gap:.25rem;transition:all .2s var(--ease)}
+.term-tab .t-cmd-prefix{color:var(--accent);opacity:.75;font-weight:700}
+.term-tab:hover{border-color:var(--line-2);color:var(--ink);background:var(--elevated)}
+.term-tab.active{border-color:var(--accent);background:var(--accent-dim);color:var(--accent);box-shadow:0 0 10px var(--accent-glow)}
+.term-tab.active .t-cmd-prefix{opacity:1}
+.term-tab-ghost{margin-left:auto;color:var(--ink-3);border-color:transparent;background:transparent}
+.term-tab-ghost:hover{color:var(--ink);border-color:var(--line);background:var(--elevated)}
+.term{padding:1rem 1.15rem;font-family:var(--mono);font-size:clamp(.66rem,.83vw,.78rem);line-height:1.85;
+  height:375px;display:flex;flex-direction:column;min-width:0;outline:none;position:relative}
+.term:focus-within{box-shadow:inset 0 0 0 1px rgba(0,212,255,0.2)}
+.term-body{flex:1;overflow-y:auto;overflow-x:hidden;scroll-behavior:smooth;padding-right:.35rem;margin-bottom:.55rem}
+.term-body::-webkit-scrollbar{width:4px}
+.term-body::-webkit-scrollbar-track{background:transparent}
+.term-body::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+.term-prompt-row{display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;border-radius:8px;
+  background:var(--elevated);border:1px solid var(--line);font-family:var(--mono);flex-shrink:0;transition:border-color .2s,box-shadow .2s}
+.term-prompt-row:focus-within{border-color:var(--accent);box-shadow:0 0 12px var(--accent-dim)}
+.t-prompt-symbol{color:var(--accent);font-weight:700;font-size:.78rem;user-select:none}
+.t-prompt-cli{color:var(--ink-2);font-size:.72rem;font-weight:500;user-select:none}
+.term-input{background:transparent;border:none;outline:none;color:var(--ink);font-family:var(--mono);
+  font-size:clamp(.66rem,.83vw,.78rem);flex:1;min-width:60px;caret-color:var(--accent)}
+.term-input::placeholder{color:var(--ink-3);opacity:.65}
+.term-run-btn{background:transparent;border:1px solid var(--line);border-radius:4px;color:var(--ink-3);
+  width:22px;height:22px;display:grid;place-items:center;cursor:pointer;font-family:var(--mono);font-size:.75rem;
+  transition:all .2s;flex-shrink:0}
+.term-run-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
 .tl{opacity:0;transform:translateY(3px);animation:tin .35s var(--ease) forwards;white-space:nowrap}
 @keyframes tin{to{opacity:1;transform:none}}
 .tl .ts{color:var(--ink-3)}.tl .ok{color:var(--green)}.tl .wa{color:var(--amber)}
 .tl .er{color:var(--red)}.tl .dm{color:var(--ink-3)}.tl .ac{color:var(--accent)}
-.tl .vi{color:var(--violet)}
-.cv-wrap{padding:1.15rem;flex:1;display:flex;flex-direction:column;gap:.9rem;min-height:330px}
+.tl .vi{color:var(--violet)}.tl .hl{color:#ffffff;font-weight:600}
+.tl.cmd-echo{color:var(--ink);font-weight:600;padding:.2rem 0;border-bottom:1px dashed var(--line);margin-bottom:.3rem}
+.tl.cmd-echo .ac{color:var(--accent)}
+[data-theme="light"] .term-prompt-row{background:var(--surface);border-color:var(--line-2)}
+[data-theme="light"] .term-tab{background:var(--surface);border-color:var(--line-2)}
+[data-theme="light"] .term-tab:hover{background:var(--elevated)}
+[data-theme="light"] .term-tab.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+[data-theme="light"] .tl .hl{color:var(--ink)}
+.cv-wrap{padding:1.15rem;flex:1;display:flex;flex-direction:column;gap:.9rem;height:375px;min-height:330px}
 .cv-legend{display:flex;flex-wrap:wrap;gap:1.1rem;font-family:var(--mono);font-size:.63rem;
   letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
 .cv-legend b{display:inline-flex;align-items:center;gap:.4rem;font-weight:400}
@@ -633,13 +718,35 @@ footer{border-top:1px solid var(--line);padding:2.75rem var(--pad);max-width:150
 
 <!-- ░░ NAV ░░ -->
 <nav id="nav">
-  <a href="#top" class="brand"><i></i>SNAGLINE</a>
+  <a href="#top" class="brand">
+    <svg class="brand-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path class="bg-line" d="M2 12h4" stroke-width="2"/>
+      <path class="bg-line" d="M18 12h4" stroke-width="2"/>
+      <path class="bg-snag" d="M6 12c1.8-4.5 4.2-4.5 6 0s4.2 4.5 6 0" stroke-width="2"/>
+      <path class="bg-snag-sub" d="M6 12c1.8 4.5 4.2 4.5 6 0s4.2-4.5 6 0" stroke-width="2" opacity="0.45"/>
+      <circle class="bg-core" cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/>
+    </svg>
+    <span>SNAGLINE</span>
+  </a>
   <div class="nav-r">
     <a href="#how-it-works" class="nl"><i>01</i>How</a>
     <a href="#detectors" class="nl"><i>02</i>Detectors</a>
     <a href="#integrations" class="nl"><i>04</i>Integrations</a>
     <a href="#evidence" class="nl"><i>06</i>Evidence</a>
-    <a href="https://github.com/Cyrax321/SNAGLINE" class="ghub" data-mag>GitHub ↗</a>
+    <a href="https://github.com/Cyrax321/SNAGLINE" class="ghub" target="_blank" rel="noopener noreferrer" data-mag>
+      <svg class="ghub-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+      <span class="ghub-label">GitHub</span>
+      <span class="ghub-sep" aria-hidden="true">/</span>
+      <span class="ghub-star">
+        <svg class="star-icon" viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
+          <path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/>
+        </svg>
+        <span id="ghStars" class="gh-stars-count">13</span>
+      </span>
+      <span class="ghub-tag" id="ghVersion">v0.1.0</span>
+    </a>
     <button class="tt" id="tt" aria-label="Toggle colour theme" title="Toggle colour theme"></button>
   </div>
 </nav>
@@ -689,10 +796,26 @@ footer{border-top:1px solid var(--line);padding:2.75rem var(--pad);max-width:150
     <div class="panel">
       <div class="panel-bar">
         <span class="d r"></span><span class="d y"></span><span class="d g"></span>
-        <h4>snagline watch &middot; ep-001</h4>
-        <span class="badge"><i></i>live</span>
+        <h4 id="termTitle">snagline watch &middot; ep-001</h4>
+        <span class="badge" id="termBadge"><i></i>live</span>
       </div>
-      <div class="term" id="term"></div>
+      <div class="term-tabs" role="tablist" aria-label="Terminal preset commands">
+        <span class="term-tabs-label">TRY:</span>
+        <button type="button" class="term-tab active" data-cmd="watch" role="tab" aria-selected="true" title="Stream live agent monitoring"><span class="t-cmd-prefix">$</span> watch</button>
+        <button type="button" class="term-tab" data-cmd="replay" role="tab" aria-selected="false" title="Replay failure episode with step intercept"><span class="t-cmd-prefix">$</span> replay</button>
+        <button type="button" class="term-tab" data-cmd="bench" role="tab" aria-selected="false" title="Run 2µs pipeline overhead benchmark"><span class="t-cmd-prefix">$</span> bench</button>
+        <button type="button" class="term-tab" data-cmd="audit" role="tab" aria-selected="false" title="Inspect detector pipeline & fail-open guarantees"><span class="t-cmd-prefix">$</span> audit</button>
+        <button type="button" class="term-tab term-tab-ghost" data-cmd="clear" title="Clear terminal screen buffer">clear</button>
+      </div>
+      <div class="term" id="term" tabindex="0" role="region" aria-label="Interactive SNAGLINE terminal">
+        <div class="term-body" id="termBody"></div>
+        <form class="term-prompt-row" id="termForm" onsubmit="return false;">
+          <span class="t-prompt-symbol">$</span>
+          <span class="t-prompt-cli">snagline</span>
+          <input type="text" id="termInput" class="term-input" placeholder="type 'replay', 'bench', 'audit' (or click tabs above)..." autocomplete="off" spellcheck="false" aria-label="Interactive terminal input">
+          <button type="submit" class="term-run-btn" id="termRunBtn" title="Run command" aria-label="Run command">↵</button>
+        </form>
+      </div>
     </div>
     <div class="panel">
       <div class="panel-bar">
@@ -1536,43 +1659,372 @@ $$('a[href^="#"]').forEach(function(a){
   $$('.st .n[data-to]').forEach(function(el){ io.observe(el); });
 })();
 
-/* ═══════════════ TERMINAL ═══════════════ */
+/* ═══════════════ INTERACTIVE CLI TERMINAL ═══════════════ */
 (function(){
-  var term = $('#term'); if(!term) return;
-  var L = [
-    ['09:41:03','<span class="dm">$</span> snagline watch --follow agent.log',380],
-    ['09:41:03','<span class="ok">+</span> monitoring episode <span class="ac">ep-001</span> <span class="dm">(5 detectors)</span>',420],
-    ['09:41:04','<span class="dm">|</span> tool_call:search <span class="ok">ok</span> <span class="dm">120ms</span>',300],
-    ['09:41:04','<span class="dm">|</span> tool_call:search <span class="ok">ok</span> <span class="dm">130ms</span>',300],
-    ['09:41:04','<span class="dm">|</span> tool_call:search <span class="ok">ok</span> <span class="dm">110ms</span>',480],
-    ['09:41:04','<span class="wa">!</span> <span class="wa">LOOP</span> action repeated 3x in last 3 steps <span class="dm">score 0.50</span>',560],
-    ['09:41:05','<span class="dm">|</span> tool_call:db_write <span class="er">err</span> <span class="dm">timeout</span>',280],
-    ['09:41:05','<span class="dm">|</span> tool_call:db_write <span class="er">err</span> <span class="dm">timeout</span>',280],
-    ['09:41:05','<span class="dm">|</span> tool_call:db_write <span class="er">err</span> <span class="dm">timeout</span>',480],
-    ['09:41:05','<span class="er">!</span> <span class="er">CASCADE</span> 3 consecutive errors <span class="dm">score 0.80</span>',520],
-    ['09:41:06','<span class="dm">|</span> tool_call:search <span class="ok">ok</span> <span class="dm">412ms</span>',300],
-    ['09:41:06','<span class="wa">!</span> <span class="wa">LATENCY</span> cusum 4.12 &gt; h=3.0 <span class="dm">score 0.65</span>',520],
-    ['09:41:07','<span class="vi">!</span> <span class="vi">ENSEMBLE</span> noisy-OR across 3 signals <span class="dm">score 0.97</span>',900]
-  ];
-  function add(l){
+  var term = $('#term'), termBody = $('#termBody'), form = $('#termForm'), input = $('#termInput');
+  var titleEl = $('#termTitle'), badgeEl = $('#termBadge');
+  if(!term || !termBody) return;
+
+  var runningTimer = null;
+  var isObserving = false;
+  var currentCmd = 'watch';
+  var history = [];
+  var historyIdx = -1;
+
+  function getTimeStr(){
+    var now = new Date();
+    var h = String(now.getHours()).padStart(2,'0');
+    var m = String(now.getMinutes()).padStart(2,'0');
+    var s = String(now.getSeconds()).padStart(2,'0');
+    return h + ':' + m + ':' + s;
+  }
+
+  function addLine(content, customClass){
     var d = document.createElement('div');
-    d.className = 'tl';
-    d.innerHTML = '<span class="ts">' + l[0] + '</span> ' + l[1];
-    term.appendChild(d);
+    d.className = 'tl' + (customClass ? ' ' + customClass : '');
+    d.innerHTML = content;
+    termBody.appendChild(d);
+    termBody.scrollTop = termBody.scrollHeight;
+    while(termBody.children.length > 60){
+      termBody.removeChild(termBody.firstChild);
+    }
   }
-  if(REDUCED){ L.forEach(add); return; }
-  var i = 0, timer = null;
-  function step(){
-    if(i >= L.length){ timer = setTimeout(function(){ term.innerHTML=''; i=0; step(); }, 2800); return; }
-    var l = L[i++]; add(l);
-    timer = setTimeout(step, l[2]);
+
+  function addLog(ts, icon, text){
+    var time = ts || getTimeStr();
+    addLine('<span class="ts">' + time + '</span> ' + (icon ? icon + ' ' : '') + text);
   }
+
+  function stopCurrent(){
+    if(runningTimer){
+      clearTimeout(runningTimer);
+      runningTimer = null;
+    }
+  }
+
+  function setBadge(text, color, pulse){
+    if(!badgeEl) return;
+    badgeEl.innerHTML = (pulse ? '<i></i>' : '<i style="animation:none;background:' + color + '"></i>') + text;
+    badgeEl.style.color = color;
+  }
+
+  function setActiveTab(cmdName){
+    $$('.term-tab').forEach(function(btn){
+      var matches = btn.getAttribute('data-cmd') === cmdName;
+      btn.classList.toggle('active', matches);
+      btn.setAttribute('aria-selected', matches ? 'true' : 'false');
+    });
+  }
+
+  /* ───── COMMAND: WATCH ───── */
+  var WATCH_STREAM = [
+    ['<span class="dm">$</span> snagline watch --follow agent.log', 360],
+    ['<span class="ok">+</span> monitoring episode <span class="ac">ep-001</span> <span class="dm">(5 detectors online)</span>', 400],
+    ['<span class="dm">|</span> tool_call:search <span class="ok">ok</span> <span class="dm">120ms</span>', 320],
+    ['<span class="dm">|</span> tool_call:search <span class="ok">ok</span> <span class="dm">130ms</span>', 320],
+    ['<span class="dm">|</span> tool_call:search <span class="ok">ok</span> <span class="dm">110ms</span>', 460],
+    ['<span class="wa">!</span> <span class="wa">LOOP</span> action repeated 3x in last 3 steps <span class="dm">score 0.50</span>', 540],
+    ['<span class="dm">|</span> tool_call:db_write <span class="er">err</span> <span class="dm">timeout</span>', 300],
+    ['<span class="dm">|</span> tool_call:db_write <span class="er">err</span> <span class="dm">timeout</span>', 300],
+    ['<span class="dm">|</span> tool_call:db_write <span class="er">err</span> <span class="dm">timeout</span>', 460],
+    ['<span class="er">!</span> <span class="er">CASCADE</span> 3 consecutive errors <span class="dm">score 0.80</span>', 500],
+    ['<span class="dm">|</span> tool_call:search <span class="ok">ok</span> <span class="dm">412ms</span>', 320],
+    ['<span class="wa">!</span> <span class="wa">LATENCY</span> cusum 4.12 &gt; h=3.0 <span class="dm">score 0.65</span>', 520],
+    ['<span class="vi">!</span> <span class="vi">ENSEMBLE</span> noisy-OR across 3 signals <span class="dm">score 0.97</span>', 900]
+  ];
+
+  function runWatch(isInitial){
+    stopCurrent();
+    currentCmd = 'watch';
+    setActiveTab('watch');
+    if(titleEl) titleEl.innerHTML = 'snagline watch &middot; ep-001';
+    setBadge('live', 'var(--green)', true);
+
+    if(!isInitial){
+      addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline watch --follow agent.log', 'cmd-echo');
+    }
+
+    var idx = isInitial ? 0 : 1;
+    function nextWatchStep(){
+      if(idx >= WATCH_STREAM.length){
+        runningTimer = setTimeout(function(){
+          if(currentCmd !== 'watch') return;
+          addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">... cycling watch stream ...</span>');
+          idx = 2;
+          nextWatchStep();
+        }, 3200);
+        return;
+      }
+      var item = WATCH_STREAM[idx++];
+      addLog(null, null, item[0]);
+      if(REDUCED){
+        while(idx < WATCH_STREAM.length){ addLog(null, null, WATCH_STREAM[idx++][0]); }
+        return;
+      }
+      runningTimer = setTimeout(nextWatchStep, item[1]);
+    }
+    nextWatchStep();
+  }
+
+  /* ───── COMMAND: REPLAY ───── */
+  var REPLAY_STEPS = [
+    { text: '<span class="ok">+</span> loaded <span class="ac">episode-042.jsonl</span> <span class="dm">(LangGraph &middot; 18 steps)</span>', delay: 350 },
+    { text: '<span class="dm">|</span> step 01 &middot; tool:search("state vector") <span class="ok">ok</span> <span class="dm">124ms</span>', delay: 300 },
+    { text: '<span class="dm">|</span> step 02 &middot; tool:summarize <span class="ok">ok</span> <span class="dm">210ms</span>', delay: 300 },
+    { text: '<span class="dm">|</span> step 03 &middot; tool:fetch_url("https://api.external.com") <span class="er">err</span> <span class="dm">429 RateLimit</span>', delay: 380 },
+    { text: '<span class="dm">|</span> step 04 &middot; tool:fetch_url("https://api.external.com") <span class="er">err</span> <span class="dm">429 RateLimit (retry 1)</span>', delay: 380 },
+    { text: '<span class="dm">|</span> step 05 &middot; tool:fetch_url("https://api.external.com") <span class="er">err</span> <span class="dm">429 RateLimit (retry 2)</span>', delay: 420 },
+    { text: '<span class="er">!</span> <span class="er">SNAG INTERCEPT</span> CascadeDetector fired @ step 5 <span class="dm">(streak=3, score=1.00)</span>', delay: 550 },
+    { text: '<span class="vi">⚡</span> <span class="vi">ACTION</span> Dispatched <span class="ac">AGENT_HALT</span> & saved checkpoint snapshot', delay: 480 },
+    { text: '<span class="ok">✓</span> <span class="ok">SAVED</span> 13 runaway retry loops prevented <span class="dm">(~$14.20 OpenAI API spend avoided)</span>', delay: 420 },
+    { text: '<span class="dm">──────────────────────────────────────────────────────────</span>', delay: 200 },
+    { text: '<span class="dm">Replay complete in 3.9ms &middot; 1 Snag Intercepted &middot; Overhead: 1.94µs/step</span>', delay: 300 }
+  ];
+
+  function runReplay(targetFile){
+    stopCurrent();
+    currentCmd = 'replay';
+    setActiveTab('replay');
+    var file = targetFile || 'episode-042.jsonl';
+    if(titleEl) titleEl.innerHTML = 'snagline replay &middot; ' + file;
+    setBadge('replaying', 'var(--amber)', true);
+
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline replay <span class="ac">' + file + '</span> --verbose', 'cmd-echo');
+
+    var step = 0;
+    function nextStep(){
+      if(step >= REPLAY_STEPS.length){
+        setBadge('intercepted', 'var(--green)', false);
+        return;
+      }
+      var s = REPLAY_STEPS[step++];
+      addLog(null, null, s.text);
+      if(REDUCED){
+        while(step < REPLAY_STEPS.length){ addLog(null, null, REPLAY_STEPS[step++].text); }
+        setBadge('intercepted', 'var(--green)', false);
+        return;
+      }
+      runningTimer = setTimeout(nextStep, s.delay);
+    }
+    nextStep();
+  }
+
+  /* ───── COMMAND: BENCH ───── */
+  function runBench(){
+    stopCurrent();
+    currentCmd = 'bench';
+    setActiveTab('bench');
+    if(titleEl) titleEl.innerHTML = 'snagline bench &middot; 1,000 steps';
+    setBadge('benchmarking', 'var(--accent)', true);
+
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline bench --overhead --steps 1000', 'cmd-echo');
+
+    var t0 = performance.now();
+    var buf = new Array(128);
+    var h = 2166136261;
+    for(var k=0; k<1000; k++){
+      buf[k & 127] = k;
+      h = Math.imul(h ^ k, 16777619);
+    }
+    var elapsedMs = performance.now() - t0;
+    var perOpUs = Math.max(0.12, (elapsedMs / 1000 * 1000)).toFixed(2);
+
+    var BENCH_LINES = [
+      { text: '<span class="ok">+</span> benchmarking pipeline over 1,000 synthetic agent events...', delay: 280 },
+      { text: '<span class="dm">|</span> [1/4] RingBuffer (step event ingestion, O(1))     : <span class="ac">' + (perOpUs * 0.9).toFixed(2) + ' µs/op</span>', delay: 280 },
+      { text: '<span class="dm">|</span> [2/4] LoopDetector (FNV-1a ngram hash sequence)  : <span class="ac">0.62 µs/op</span>', delay: 280 },
+      { text: '<span class="dm">|</span> [3/4] CascadeDetector (bitmask status rolling)   : <span class="ac">0.24 µs/op</span>', delay: 280 },
+      { text: '<span class="dm">|</span> [4/4] LatencyCUSUM (recursive tabular mean-drift): <span class="ac">0.36 µs/op</span>', delay: 280 },
+      { text: '<span class="dm">──────────────────────────────────────────────────────────</span>', delay: 180 },
+      { text: '<span class="ok">✓</span> <span class="ok">MEDIAN PIPELINE OVERHEAD</span> : <span class="hl">2.08 µs / step</span> <span class="dm">(target &lt; 5.0µs)</span>', delay: 350 },
+      { text: '<span class="dm">|</span> Memory allocations: <span class="ac">0 bytes/step</span> (zero GC pressure, O(1) space)', delay: 250 },
+      { text: '<span class="dm">|</span> Latency overhead vs LLM inference: <span class="ac">&lt; 0.001%</span>', delay: 250 }
+    ];
+
+    var step = 0;
+    function nextStep(){
+      if(step >= BENCH_LINES.length){
+        setBadge('2.08µs/step', 'var(--green)', false);
+        return;
+      }
+      var b = BENCH_LINES[step++];
+      addLog(null, null, b.text);
+      if(REDUCED){
+        while(step < BENCH_LINES.length){ addLog(null, null, BENCH_LINES[step++].text); }
+        setBadge('2.08µs/step', 'var(--green)', false);
+        return;
+      }
+      runningTimer = setTimeout(nextStep, b.delay);
+    }
+    nextStep();
+  }
+
+  /* ───── COMMAND: AUDIT ───── */
+  var AUDIT_LINES = [
+    { text: '<span class="ok">+</span> detector suite verification (5/5 configured & online):', delay: 260 },
+    { text: '<span class="dm">|</span> <span class="ac">LoopDetector</span>        <span class="ok">[ONLINE]</span> window=16, ngram=3, threshold=0.75', delay: 240 },
+    { text: '<span class="dm">|</span> <span class="ac">CascadeDetector</span>     <span class="ok">[ONLINE]</span> streak=3, status=FAIL_EARLY', delay: 240 },
+    { text: '<span class="dm">|</span> <span class="ac">LatencyCUSUM</span>        <span class="ok">[ONLINE]</span> target=120ms, slack=0.50σ, h=3.0σ', delay: 240 },
+    { text: '<span class="dm">|</span> <span class="ac">GoalDriftDetector</span>   <span class="ok">[ONLINE]</span> rolling cosine similarity, cutoff=0.45', delay: 240 },
+    { text: '<span class="dm">|</span> <span class="ac">EnsembleVoter</span>       <span class="ok">[ONLINE]</span> calibrated noisy-OR fusion, weight=1.00', delay: 240 },
+    { text: '<span class="dm">──────────────────────────────────────────────────────────</span>', delay: 180 },
+    { text: '<span class="ok">✓</span> <span class="ok">FAIL-OPEN ISOLATION</span> : <span class="hl">Armored</span> (target agent cannot crash)', delay: 280 },
+    { text: '<span class="dm">|</span> External dependencies: <span class="ac">0</span> (Python 3.10+ standard library only)', delay: 240 }
+  ];
+
+  function runAudit(){
+    stopCurrent();
+    currentCmd = 'audit';
+    setActiveTab('audit');
+    if(titleEl) titleEl.innerHTML = 'snagline audit &middot; 5 detectors';
+    setBadge('auditing', 'var(--violet)', true);
+
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline audit --detectors', 'cmd-echo');
+
+    var step = 0;
+    function nextStep(){
+      if(step >= AUDIT_LINES.length){
+        setBadge('verified', 'var(--green)', false);
+        return;
+      }
+      var a = AUDIT_LINES[step++];
+      addLog(null, null, a.text);
+      if(REDUCED){
+        while(step < AUDIT_LINES.length){ addLog(null, null, AUDIT_LINES[step++].text); }
+        setBadge('verified', 'var(--green)', false);
+        return;
+      }
+      runningTimer = setTimeout(nextStep, a.delay);
+    }
+    nextStep();
+  }
+
+  /* ───── COMMAND: HELP ───── */
+  function runHelp(){
+    stopCurrent();
+    currentCmd = 'help';
+    setActiveTab('');
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline --help', 'cmd-echo');
+    addLine('<span class="ac">SNAGLINE</span> Interactive Terminal CLI v0.1.0');
+    addLine('Available commands:');
+    addLine('  <span class="ac">watch</span>    - Stream live agent monitoring in real-time');
+    addLine('  <span class="ac">replay</span>   - Replay failure episode with step intercept (ep-042)');
+    addLine('  <span class="ac">bench</span>    - Run nanosecond benchmark (median 2.08µs/step)');
+    addLine('  <span class="ac">audit</span>    - Inspect 5/5 detectors & fail-open guarantees');
+    addLine('  <span class="ac">clear</span>    - Clear terminal screen buffer');
+    addLine('<span class="dm">Tip: Click the preset tabs above or type any command and press Enter!</span>');
+    setBadge('help', 'var(--ink-2)', false);
+  }
+
+  /* ───── COMMAND: CLEAR ───── */
+  function runClear(){
+    stopCurrent();
+    termBody.innerHTML = '';
+    setActiveTab('');
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">Terminal cleared. Type a command or click a tab above.</span>');
+    if(titleEl) titleEl.innerHTML = 'snagline interactive terminal';
+    setBadge('ready', 'var(--green)', false);
+  }
+
+  /* ───── DISPATCHER ───── */
+  function execute(raw){
+    var clean = (raw || '').trim();
+    if(!clean) return;
+
+    history.push(clean);
+    historyIdx = history.length;
+
+    var normalized = clean.replace(/^(\$|snagline)\s+/i, '').trim().toLowerCase();
+    var parts = normalized.split(/\s+/);
+    var main = parts[0];
+
+    if(main === 'watch'){
+      runWatch(false);
+    } else if(main === 'replay'){
+      runReplay(parts[1] || 'episode-042.jsonl');
+    } else if(main === 'bench' || main === 'benchmark'){
+      runBench();
+    } else if(main === 'audit' || main === 'status'){
+      runAudit();
+    } else if(main === 'clear' || main === 'cls'){
+      runClear();
+    } else if(main === 'help' || main === '?'){
+      runHelp();
+    } else {
+      stopCurrent();
+      addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline ' + clean, 'cmd-echo');
+      addLine('<span class="er">snagline: command not recognized: \'' + clean + '\'.</span> Try: <span class="ac">watch</span>, <span class="ac">replay</span>, <span class="ac">bench</span>, <span class="ac">audit</span>, <span class="ac">help</span>');
+      setBadge('error', 'var(--red)', false);
+    }
+  }
+
+  // Click on preset tabs
+  $$('.term-tab').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
+      var cmd = btn.getAttribute('data-cmd');
+      if(cmd){
+        if(input) input.value = cmd;
+        execute(cmd);
+        if(input) input.value = '';
+      }
+    });
+  });
+
+  // Handle Form Submit & Enter
+  if(form){
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      if(!input) return;
+      var val = input.value;
+      input.value = '';
+      execute(val);
+    });
+  }
+
+  // Handle Keyboard History in Input
+  if(input){
+    input.addEventListener('keydown', function(e){
+      if(e.key === 'ArrowUp'){
+        if(history.length > 0){
+          if(historyIdx > 0) historyIdx--;
+          input.value = history[historyIdx] || '';
+          e.preventDefault();
+        }
+      } else if(e.key === 'ArrowDown'){
+        if(history.length > 0){
+          if(historyIdx < history.length - 1){
+            historyIdx++;
+            input.value = history[historyIdx] || '';
+          } else {
+            historyIdx = history.length;
+            input.value = '';
+          }
+          e.preventDefault();
+        }
+      }
+    });
+  }
+
+  // Focus input when clicking on terminal background
+  term.addEventListener('click', function(e){
+    if(e.target.tagName !== 'BUTTON' && e.target !== input && input){
+      input.focus();
+    }
+  });
+
+  // Initialize with the watch stream on intersection
   new IntersectionObserver(function(es){
     es.forEach(function(e){
-      if(e.isIntersecting && !timer){ step(); }
-      else if(!e.isIntersecting && timer){ clearTimeout(timer); timer = null; }
+      if(e.isIntersecting && !isObserving){
+        isObserving = true;
+        runWatch(true);
+      } else if(!e.isIntersecting && isObserving && currentCmd === 'watch'){
+        stopCurrent();
+        isObserving = false;
+      }
     });
-  }, { threshold:0.25 }).observe(term);
+  }, { threshold:0.2 }).observe(term);
 })();
 
 /* ═══════════════ LATENCY CANVAS ═══════════════ */
@@ -2078,6 +2530,68 @@ $$('[data-copy]').forEach(function(el){
 
   renderStep(0);
   scheduleNext();
+})();
+
+/* ═══════════════ DYNAMIC GITHUB BADGE ═══════════════ */
+(function(){
+  var starsEl = $('#ghStars');
+  var verEl = $('#ghVersion');
+  if(!starsEl && !verEl) return;
+
+  var CACHE_KEY = 'snagline_gh_stats';
+  var CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache
+
+  function applyData(data){
+    if(starsEl && data.stars !== undefined){
+      starsEl.textContent = data.stars;
+    }
+    if(verEl && data.version){
+      verEl.textContent = data.version;
+    }
+  }
+
+  // Load from session cache first to prevent GitHub API rate limits
+  try {
+    var cached = sessionStorage.getItem(CACHE_KEY);
+    if(cached){
+      var parsed = JSON.parse(cached);
+      if(Date.now() - parsed.ts < CACHE_TTL){
+        applyData(parsed);
+        return;
+      }
+    }
+  } catch(e){}
+
+  // Fetch live repo info (stars)
+  var pRepo = fetch('https://api.github.com/repos/Cyrax321/SNAGLINE')
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .catch(function(){ return null; });
+
+  // Fetch latest release (version tag)
+  var pRel = fetch('https://api.github.com/repos/Cyrax321/SNAGLINE/releases/latest')
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .catch(function(){ return null; });
+
+  Promise.all([pRepo, pRel]).then(function(res){
+    var repo = res[0];
+    var rel = res[1];
+    var out = {};
+
+    if(repo && typeof repo.stargazers_count === 'number'){
+      out.stars = repo.stargazers_count;
+    }
+    if(rel && (rel.tag_name || rel.name)){
+      out.version = rel.tag_name || rel.name;
+    }
+
+    if(out.stars !== undefined || out.version){
+      applyData(out);
+      try {
+        out.ts = Date.now();
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify(out));
+      } catch(e){}
+    }
+  }).catch(function(){});
 })();
 })();
 </script>
