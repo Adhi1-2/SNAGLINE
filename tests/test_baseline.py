@@ -106,6 +106,41 @@ def test_cli_baseline_command(tmp_path, capsys):
     assert "search" in loaded.tools
 
 
+def test_cli_baseline_list_versions_with_store_dir_is_read_only(tmp_path, capsys):
+    # --list-versions with a store lists what is stored and writes nothing.
+    from snagline.baseline_store import BaselineStore, capture_from_jsonl
+
+    traj = tmp_path / "healthy.jsonl"
+    traj.write_text(json.dumps(_event("search", 100.0)) + "\n")
+    store_dir = tmp_path / "store"
+    store = BaselineStore(str(store_dir))
+    seeded = capture_from_jsonl(store, str(traj))
+
+    rc = main(["baseline", str(traj), "--store-dir", str(store_dir), "--list-versions"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert seeded in out
+    # Read-only: fitting was skipped, so no new version was stored.
+    assert store.list_versions() == [seeded]
+
+
+def test_cli_baseline_list_versions_without_store_dir_fails_closed(
+    tmp_path, capsys, monkeypatch
+):
+    # No store to list from: fail closed instead of fitting and writing a file
+    # (issue #293). Run from a scratch cwd so a stray write is visible.
+    monkeypatch.chdir(tmp_path)
+    traj = tmp_path / "healthy.jsonl"
+    traj.write_text(json.dumps(_event("search", 100.0)) + "\n")
+
+    rc = main(["baseline", str(traj), "--list-versions"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--list-versions requires --store-dir" in err
+    # The operator asked to list; no baseline.json may be written.
+    assert not (tmp_path / "baseline.json").exists()
+
+
 def test_fitted_at_roundtrip_and_old_files(tmp_path):
     # New files carry fitted_at; old schema-v1 files without it load as 0.0.
     traj = tmp_path / "h.jsonl"

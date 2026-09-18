@@ -11,13 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet.
 
 ### Fixed
+- `snagline baseline --list-versions` is now honored on both the fit and
+  `retrain` paths and is read-only everywhere: it lists and exits 0 without
+  fitting, writing `baseline.json`, or storing a new version. Without
+  `--store-dir` it now fails closed with `--list-versions requires --store-dir`
+  (exit 2) instead of silently writing a file or bumping the store (#293).
 - `episode_token_budget` and `token_budget_warn_fraction` are now range-checked
   at construction and after env/file layering, like the horizon and stagnation
   knobs. A zero or negative budget used to fire a score-1.0 `budget_breach` on
   the first token-bearing step, and a `token_budget_warn_fraction` of `0.0` a
   score-0.8 warning; values above `1.0` made the pre-breach warning
   unreachable. An out-of-range value is now a configuration error naming the
-  knob (#317).
+  knob (#317). 57305ac (fix(cli): make --list-versions read-only on fit and retrain paths)
 
 ## [0.1.0] - 2026-08-27
 
