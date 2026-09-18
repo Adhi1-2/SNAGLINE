@@ -1155,7 +1155,12 @@ def _inline_benchmark(
         )
         for i in range(n)
     ]
-    median_us, p99_us = time_ingest(Monitor.default())
+    # One resolved config for every leg, matching run_benchmark(): a bare
+    # Config() pins every knob to its dataclass default while Monitor.default()
+    # resolves the SNAGLINE_* env layering, so mixing the two would compare
+    # detector setups that differ in more than scaling.
+    base_cfg = Config.resolve()
+    median_us, p99_us = time_ingest(Monitor.default(base_cfg))
     stats: dict = {
         "n": n,
         "blocks": len(range(block, n, block)),
@@ -1165,7 +1170,9 @@ def _inline_benchmark(
     }
     for cap in max_windows:
         monitor = Monitor.default(
-            Config(window_scale_steps=scale_steps, max_window=cap)
+            dataclasses.replace(
+                base_cfg, window_scale_steps=scale_steps, max_window=cap
+            )
         )
         median_us, p99_us = time_ingest(monitor)
         stats["scaled"].append(

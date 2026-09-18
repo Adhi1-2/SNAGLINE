@@ -363,6 +363,39 @@ def test_append_counted_tracks_appends_evictions_and_deletes_at_zero() -> None:
     assert list(w) == ["a", "c", "d"]
 
 
+def test_append_counted_on_zero_capacity_window_returns_zero() -> None:
+    """A detector configured with ``window_size=0`` (Config does not reject it)
+    yields ``deque(maxlen=0)``, which drops every item. The count is then always
+    0 -- and the eviction branch must not read ``w[0]`` on an empty deque.
+    Scaling off silently discards via the plain deque; scaling on must not turn
+    that into an IndexError (CodeRabbit finding, PR #307).
+    """
+    w: deque = deque(maxlen=0)
+    counts: Counter = Counter()
+    for item in ("a", "a", "b"):
+        assert append_counted(w, counts, item) == 0
+    assert list(w) == []
+    assert counts == Counter()
+
+
+@pytest.mark.parametrize(
+    "base_zero", ["loop_window_size", "cascade_window_size"], ids=["loop", "cascade"]
+)
+def test_zero_window_size_does_not_raise_under_scaling(base_zero: str) -> None:
+    """End-to-end guard: a zero base window with scaling on must stay fail-safe
+    (no risk ever fires) rather than raising out of observe(). The detector whose
+    window is zeroed is the one that would raise."""
+    cfg = Config(window_scale_steps=5, max_window=8, **{base_zero: 0})  # type: ignore[arg-type]
+    det = (
+        LoopDetector(config=cfg)
+        if base_zero == "loop_window_size"
+        else ErrorCascadeDetector(config=cfg)
+    )
+    for i in range(20):
+        e = _event(f"s{i}", float(i), "loopA" if i % 2 else f"u{i}", error=(i % 3 == 0))
+        assert det.observe(e) is None
+
+
 def test_maintain_counter_rebuilds_when_maxlen_moves() -> None:
     counters: dict = {}
     sizes: dict = {}

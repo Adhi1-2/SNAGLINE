@@ -25,6 +25,7 @@ class, and it is invisible to the default leg alone.
 
 from __future__ import annotations
 
+import dataclasses
 import statistics
 import time
 
@@ -102,7 +103,15 @@ def run_benchmark(
     events = _make_events(n)
     blocks = len(range(block, n, block))
 
-    median_us, p99_us = _time_ingest(Monitor.default(), events, n, block)
+    # One resolved config for every leg. ``Monitor.default()`` resolves the
+    # SNAGLINE_* env layering while a bare ``Config()`` pins every knob to its
+    # dataclass default, so mixing the two compares detector setups that differ
+    # in more than scaling (an operator with SNAGLINE_LOOP_WINDOW_SIZE set would
+    # measure a different base window per leg). Deriving each leg from one base
+    # and overriding only the two scaling knobs isolates the rescanning cost.
+    base_cfg = Config.resolve()
+
+    median_us, p99_us = _time_ingest(Monitor.default(base_cfg), events, n, block)
     stats: dict = {
         "n": n,
         "blocks": blocks,
@@ -115,7 +124,9 @@ def run_benchmark(
     # rescanning cost, not detector tuning or a different workload.
     for cap in max_windows:
         monitor = Monitor.default(
-            Config(window_scale_steps=scale_steps, max_window=cap)
+            dataclasses.replace(
+                base_cfg, window_scale_steps=scale_steps, max_window=cap
+            )
         )
         median_us, p99_us = _time_ingest(monitor, events, n, block)
         stats["scaled"].append(

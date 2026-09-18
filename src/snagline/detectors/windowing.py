@@ -100,7 +100,14 @@ def append_counted(w: deque, counts: Counter, item: Any) -> int:
     leaving a stale 0 keeps the Counter from accumulating one dead key per
     distinct signature an episode has ever seen.
     """
-    if len(w) >= (w.maxlen or 0):
+    # A zero-capacity window (a detector configured with ``window_size=0``,
+    # which Config does not reject) drops every item, so the count is always 0.
+    # Without this guard the eviction branch below reads ``w[0]`` on an empty
+    # deque and raises IndexError; with scaling off the plain deque path just
+    # discards silently, so scaling must not turn that into a crash.
+    if w.maxlen == 0:
+        return 0
+    if w.maxlen is not None and len(w) >= w.maxlen:
         evicted = w[0]
         remaining = counts[evicted] - 1
         if remaining <= 0:
