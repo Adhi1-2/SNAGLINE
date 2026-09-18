@@ -92,7 +92,7 @@ class _EpisodeClock:
     reproduces identical risks. One instance per active episode.
     """
 
-    __slots__ = ("last_ts", "elapsed", "idle_fired", "warned", "breached")
+    __slots__ = ("last_ts", "elapsed", "idle_fired", "warned", "breached", "anchored")
 
     def __init__(self, first_ts: float) -> None:
         self.last_ts = first_ts
@@ -100,6 +100,10 @@ class _EpisodeClock:
         self.idle_fired = False  # "idle_gap" fires once per episode
         self.warned = False  # budget warning fires once per episode
         self.breached = False  # budget breach fires once per episode
+        # A clock built by ingest() is anchored: first_ts is a real timestamp
+        # from this process, so the next event may measure a delta from it. A
+        # clock rebuilt by restore_dict is not (see there).
+        self.anchored = True
 
 
 def _detector_key(index: int, detector: Any) -> str:
@@ -430,6 +434,21 @@ class Monitor:
                     # point; there is no delta yet, so nothing can fire.
                     self._clocks[event.episode_id] = _EpisodeClock(event.timestamp)
             if clock is None:
+                return out
+            if not clock.anchored:
+                # This clock was rebuilt by restore_dict: its ``last_ts`` is a
+                # raw StepEvent.timestamp from a *dead* process. The shipped
+                # auto-instrumentation stamps events with perf_counter, whose
+                # epoch is process-local, so the delta to this event is
+                # meaningless -- it can be tens of thousands of seconds (a
+                # fabricated idle_gap and wall_clock_budget) or negative,
+                # which #249's guard already ignores but which then freezes
+                # the budget for the rest of the episode. Drop the reference
+                # and anchor here instead, exactly as a first event would:
+                # accumulated ``elapsed`` survives, so budget already spent is
+                # not forgiven, but no span is invented either.
+                clock.last_ts = event.timestamp
+                clock.anchored = True
                 return out
             delta = event.timestamp - clock.last_ts
             if delta > 0.0:
@@ -917,6 +936,13 @@ class Monitor:
                 load(dumped_sinks[key])
         time_axis_data = data.get("time_axis")
         if isinstance(time_axis_data, dict):
+            # Replace, do not merge: every detector's state was just rebuilt
+            # wholesale and _live_episodes was cleared below, so a clock left
+            # over from an episode the snapshot does not carry is orphaned --
+            # that episode would resume with stale elapsed/warned while every
+            # detector treats it as brand new.
+            with self._clocks_lock:
+                self._clocks.clear()
             for episode_id, clock_data in time_axis_data.items():
                 if not isinstance(episode_id, str) or not isinstance(clock_data, dict):
                     continue
@@ -939,6 +965,14 @@ class Monitor:
                 clock.idle_fired = idle_fired
                 clock.warned = warned
                 clock.breached = breached
+                # ``last_ts`` is a raw event timestamp from the process that
+                # wrote the snapshot. Adapters using perf_counter (the shipped
+                # auto-instrumentation) have a process-local epoch, so it is
+                # not a valid reference for this process's first post-restore
+                # event. _advance_clock re-anchors on that event instead of
+                # measuring a delta from a dead clock; ``elapsed`` carries the
+                # budget already spent across the restart.
+                clock.anchored = False
                 with self._clocks_lock:
                     self._clocks[episode_id] = clock
         # Rebuild the live-episode LRU and enforce the retention cap
