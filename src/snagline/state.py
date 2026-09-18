@@ -18,18 +18,24 @@ import logging
 import os
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
-from typing import Protocol
+from contextlib import AbstractContextManager, contextmanager
+from typing import Literal, Protocol
 
 logger = logging.getLogger("snagline")
 
 
 class StateBackend(Protocol):
-    """Owns the lock used to serialize a single episode's ingest path."""
+    """Owns the lock used to serialize a single episode's ingest path.
 
-    @contextmanager
-    def episode_lock(self, episode_id: str) -> Iterator[None]:
-        """Yield while holding the lock for ``episode_id`` (re-entrant safe)."""
+    ``episode_lock`` returns any context manager, not specifically a
+    generator: the memory backend measures ~0.34 us/step cheaper as a plain
+    object (issue #299), and a caller only ever enters and exits. A backend
+    that prefers to ``yield`` still type-checks, because
+    ``contextlib._GeneratorContextManager`` satisfies this shape.
+    """
+
+    def episode_lock(self, episode_id: str) -> AbstractContextManager[None]:
+        """Hold the lock for ``episode_id`` for the duration of a ``with``."""
         ...
 
 
@@ -66,6 +72,54 @@ class _LockEntry:
         self.released: bool = False
 
 
+class _HeldLock(AbstractContextManager[None]):
+    """The live half of ``MemoryStateBackend.episode_lock`` (issue #299).
+
+    ``episode_lock`` used to be a ``@contextmanager``, so every ingest paid
+    for a generator frame -- create, resume into the ``with``, throw on exit
+    -- on top of the locks themselves. Measured, that machinery alone was
+    ~0.34 us of the ~1.9 us default per-step budget, roughly a fifth of it,
+    and it bought nothing: the caller only ever enters and exits.
+
+    Splitting the protocol's context manager into a cheap object avoids the
+    generator entirely while keeping ``with backend.episode_lock(eid):`` and
+    the issue #238 waiter semantics byte-for-byte. The entry is resolved and
+    the waiter counted eagerly, in ``episode_lock`` itself, so a waiter that
+    blocks on the RLock is already accounted for before it parks -- that is
+    what makes ``release()`` safe against a thread parked mid-acquire.
+    """
+
+    __slots__ = ("_backend", "_entry", "_episode_id")
+
+    def __init__(
+        self, backend: MemoryStateBackend, entry: _LockEntry, episode_id: str
+    ) -> None:
+        self._backend = backend
+        self._entry = entry
+        self._episode_id = episode_id
+
+    def __enter__(self) -> None:
+        self._entry.lock.acquire()
+
+    def __exit__(self, *exc_info: object) -> Literal[False]:
+        self._entry.lock.release()
+        # Mirror the generator's original finally block: this entry is only
+        # safe to forget once nothing is left parked on it. Fetched under
+        # _meta so a concurrent release() cannot observe a half-decremented
+        # waiter count. The lookup can come back None if release() already
+        # drained this entry -- the waiter count then has nothing left to
+        # adjust, and there is nothing to pop.
+        backend = self._backend
+        with backend._meta:
+            entry = backend._locks.get(self._episode_id)
+            if entry is None:
+                return False
+            entry.waiters -= 1
+            if entry.released and entry.waiters == 0:
+                backend._locks.pop(self._episode_id, None)
+        return False
+
+
 class MemoryStateBackend:
     """Process-local backend: one re-entrant lock per episode id."""
 
@@ -73,22 +127,23 @@ class MemoryStateBackend:
         self._meta = threading.Lock()
         self._locks: dict[str, _LockEntry] = {}
 
-    @contextmanager
-    def episode_lock(self, episode_id: str) -> Iterator[None]:
+    def episode_lock(self, episode_id: str) -> _HeldLock:
+        """A context manager holding the lock for ``episode_id``.
+
+        Returns a cheap object rather than yielding from a generator: the
+        generator frame was ~0.34 us of every ingest, about a fifth of the
+        default per-step budget, and the caller only ever enters and exits
+        (issue #299). Resolving the entry and counting this caller as a
+        waiter under ``_meta`` before the RLock is acquired is what makes a
+        concurrent ``release()`` safe against a waiter parked mid-acquire.
+        """
         with self._meta:
             entry = self._locks.get(episode_id)
             if entry is None:
                 entry = _LockEntry()
                 self._locks[episode_id] = entry
             entry.waiters += 1
-        try:
-            with entry.lock:
-                yield
-        finally:
-            with self._meta:
-                entry.waiters -= 1
-                if entry.released and entry.waiters == 0:
-                    self._locks.pop(episode_id, None)
+        return _HeldLock(self, entry, episode_id)
 
     def release(self, episode_id: str) -> None:
         """Drop the lock allocated for a finished episode.
