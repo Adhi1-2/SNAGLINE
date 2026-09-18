@@ -40,13 +40,18 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable
 from typing import Any, cast
 
 from snagline.config import Config
 from snagline.detectors.base import snapshot_items
-from snagline.detectors.windowing import effective_window_size, next_window
+from snagline.detectors.windowing import (
+    append_counted,
+    effective_window_size,
+    maintain_counter,
+    next_window,
+)
 from snagline.events import StepEvent
 from snagline.risk import FailureRisk, TriggerType
 
@@ -149,6 +154,17 @@ class LoopDetector:
         self._stall_count: dict[str, int] = {}
         self._stall_start: dict[str, float] = {}
         self._stall_fired: dict[str, bool] = {}
+        # Running signature -> count per plain window (issue #298).
+        # ``deque.count`` is O(window) per step, so once auto-scaling grows
+        # the window this lookup dominates ``observe``. A Counter kept in
+        # step with the deque as it evicts turns it into an O(1) dict lookup.
+        # Only maintained when scaling is on: at the small fixed default
+        # window a C-level ``deque.count`` is still faster than the Python
+        # bookkeeping, and the published default-path numbers must not move.
+        self._counts_map: dict[str, Counter[str]] = {}
+        self._window_sizes: dict[str, int | None] = {}
+        self._near_counts_map: dict[str, Counter[str]] = {}
+        self._near_sizes: dict[str, int | None] = {}
 
     def observe(self, event: StepEvent) -> FailureRisk | None:
         hardened = self._observe_hardened(event) if self._any_mode else None
@@ -166,8 +182,21 @@ class LoopDetector:
             self._scale_steps,
             self._max_window,
         )
-        w.append(event.action_signature)
-        count = w.count(event.action_signature)
+        # ``deque.count`` scans the whole window; with auto-scaling on, that
+        # makes ``observe`` O(window) instead of O(1) (issue #298). A Counter
+        # maintained across appends and evictions answers the same question in
+        # one dict lookup. Gated on scaling: at the default fixed window the C
+        # ``deque.count`` is still faster, and the published default numbers
+        # must not move.
+        scaled = self._scale_steps > 0
+        if scaled:
+            counts = maintain_counter(
+                self._counts_map, self._window_sizes, event.episode_id, w
+            )
+            count = append_counted(w, counts, event.action_signature)
+        else:
+            w.append(event.action_signature)
+            count = w.count(event.action_signature)
         fired = self._fired.get(event.episode_id)
         if fired:
             # Re-arm any signature whose loop has ended -- it fell below the
@@ -186,8 +215,14 @@ class LoopDetector:
             # at most one per ``repeat_threshold`` slots. On the common path
             # nothing is looping, this dict has no entry, and the step costs
             # exactly what it did before.
+            counts = self._counts_map.get(event.episode_id) if scaled else None
             for sig in tuple(fired):
-                seen = count if sig == event.action_signature else w.count(sig)
+                if sig == event.action_signature:
+                    seen = count
+                elif counts is not None:
+                    seen = counts[sig]
+                else:
+                    seen = w.count(sig)
                 if seen < self.repeat_threshold:
                     fired.discard(sig)
             if not fired:
@@ -246,8 +281,16 @@ class LoopDetector:
             self._scale_steps,
             self._max_window,
         )
-        w.append(key)
-        count = w.count(key)
+        # Same O(window) -> O(1) swap as the plain path (issue #298); likewise
+        # gated on scaling so the default path keeps using ``deque.count``.
+        if self._scale_steps > 0:
+            counts = maintain_counter(
+                self._near_counts_map, self._near_sizes, event.episode_id, w
+            )
+            count = append_counted(w, counts, key)
+        else:
+            w.append(key)
+            count = w.count(key)
         fired = self._near_fired.get(event.episode_id)
         if count < self.repeat_threshold:
             if fired is not None:
@@ -317,6 +360,15 @@ class LoopDetector:
         for p in range(1, self.loop_cycle_max_period + 1):
             if n < 2 * p:
                 return None  # larger candidates only need more history
+            # Cheap necessary condition before the O(window) scan (issue
+            # #298): if the window is p-periodic then every position agrees
+            # with its neighbour p ahead, the last one included, so
+            # ``w[-1] == w[-1 - p]`` must hold. On a non-periodic window this
+            # rejects every candidate at dict-index cost and the full scan
+            # never runs -- previously the scan was paid for every p on every
+            # step, making cycle mode O(max_period x window).
+            if w[n - 1] != w[n - 1 - p]:
+                continue
             if all(w[i] == w[i + p] for i in range(n - p)):
                 return p if p >= self.loop_cycle_min_period else None
         return None
@@ -355,9 +407,13 @@ class LoopDetector:
         self._windows.pop(episode_id, None)
         self._counts.pop(episode_id, None)
         self._fired.pop(episode_id, None)
+        self._counts_map.pop(episode_id, None)
+        self._window_sizes.pop(episode_id, None)
         self._near_windows.pop(episode_id, None)
         self._near_counts.pop(episode_id, None)
         self._near_fired.pop(episode_id, None)
+        self._near_counts_map.pop(episode_id, None)
+        self._near_sizes.pop(episode_id, None)
         self._cycle_windows.pop(episode_id, None)
         self._cycle_counts.pop(episode_id, None)
         self._cycle_fired.pop(episode_id, None)
@@ -455,3 +511,11 @@ class LoopDetector:
         self._stall_count = dict(state.get("stall_count", {}))
         self._stall_start = dict(state.get("stall_start", {}))
         self._stall_fired = dict(state.get("stall_fired", {}))
+        # Counters are derived from the windows restored above; a restored
+        # window carries its own maxlen, so the cached sizes and counts are
+        # dropped and rebuilt on the first observe rather than trusted against
+        # a snapshot whose scaling position differs.
+        self._counts_map = {}
+        self._window_sizes = {}
+        self._near_counts_map = {}
+        self._near_sizes = {}

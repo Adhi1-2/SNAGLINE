@@ -20,7 +20,12 @@ from typing import Any
 
 from snagline.config import Config
 from snagline.detectors.base import snapshot_items
-from snagline.detectors.windowing import effective_window_size, next_window
+from snagline.detectors.windowing import (
+    append_counted,
+    effective_window_size,
+    maintain_counter,
+    next_window,
+)
 from snagline.events import StepEvent
 from snagline.risk import FailureRisk
 
@@ -66,6 +71,13 @@ class ErrorCascadeDetector:
         # Dedupe: emit at most once per cascade, then stay quiet until the alarm
         # condition clears and re-arms (issue #4).
         self._fired: dict[str, bool] = {}
+        # Running count of True flags in each window (issue #298). ``sum(w)``
+        # is O(window) per step, which becomes the detector's whole cost once
+        # auto-scaling grows the window past a few hundred steps. Tracking the
+        # window as a Counter makes that a single lookup, and stays ahead of
+        # ``sum`` even at the small default window.
+        self._flags: dict[str, Counter[bool]] = {}
+        self._sizes: dict[str, int | None] = {}
 
     def _is_error(self, event: StepEvent) -> bool:
         if not event.error:
@@ -87,7 +99,17 @@ class ErrorCascadeDetector:
             self._scale_steps,
             self._max_window,
         )
-        w.append(counted)
+        # Keep the running total in step with the window. ``sum(w)`` scans the
+        # whole deque, which is O(window) per step -- the detector's entire
+        # cost once auto-scaling (issue #92) grows the window past a few
+        # hundred steps. Tracking the window as a Counter makes the count of
+        # True flags a single lookup, constant at any window size (issue #298).
+        flags = maintain_counter(
+            self._flags, self._sizes, event.episode_id, w
+        )
+        append_counted(w, flags, counted)
+        total = flags[True]
+
         if counted:
             self._consecutive[event.episode_id] = (
                 self._consecutive.get(event.episode_id, 0) + 1
@@ -98,7 +120,7 @@ class ErrorCascadeDetector:
         consecutive = self._consecutive[event.episode_id]
         consecutive_alarm = consecutive >= self.consecutive_threshold
         density_alarm = (
-            sum(w) >= self.error_threshold and len(w) >= self.error_threshold
+            total >= self.error_threshold and len(w) >= self.error_threshold
         )
 
         if not (consecutive_alarm or density_alarm):
@@ -120,8 +142,8 @@ class ErrorCascadeDetector:
             score = min(1.0, consecutive / self.consecutive_threshold)
             detail = f"{consecutive} consecutive errors"
         else:
-            score = min(1.0, sum(w) / self.error_threshold)
-            detail = f"{sum(w)} errors in last {len(w)} steps"
+            score = min(1.0, total / self.error_threshold)
+            detail = f"{total} errors in last {len(w)} steps"
         return FailureRisk(
             event.episode_id,
             event.step_id,
@@ -136,6 +158,8 @@ class ErrorCascadeDetector:
         self._counts.pop(episode_id, None)
         self._consecutive.pop(episode_id, None)
         self._fired.pop(episode_id, None)
+        self._flags.pop(episode_id, None)
+        self._sizes.pop(episode_id, None)
 
     def dump_state(self) -> dict[str, Any]:
         # snapshot_items: a concurrent ingest meeting a new episode must not
@@ -167,3 +191,9 @@ class ErrorCascadeDetector:
             ep: int(v) for ep, v in state.get("consecutive", {}).items()
         }
         self._fired = {ep: bool(v) for ep, v in state.get("fired", {}).items()}
+        # The flag counts are derived from the windows above; a restored window
+        # carries its own maxlen, so the cached sizes and counts are dropped and
+        # recomputed on the first observe rather than trusted against a
+        # snapshot whose scaling position differs.
+        self._flags = {}
+        self._sizes = {}

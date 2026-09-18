@@ -16,7 +16,8 @@ the effective size is always ``base`` and every resize call below is a no-op.
 
 from __future__ import annotations
 
-from collections import deque
+from collections import Counter, deque
+from typing import Any
 
 
 def effective_window_size(
@@ -66,3 +67,46 @@ def next_window(
         w = deque(w, maxlen=target)
         windows[episode_id] = w
     return w
+
+
+def maintain_counter(
+    counters: dict[str, Counter],
+    sizes: dict[str, int | None],
+    episode_id: str,
+    w: deque,
+) -> Counter:
+    """The Counter describing ``w``'s current contents, rebuilt after a resize.
+
+    ``next_window`` grows a deque in place by swapping in a larger one that
+    keeps the most recent items, so a Counter cached from a previous step can
+    drift from what the window actually holds the moment the maxlen moves.
+    Comparing the cached maxlen detects exactly that case; the rebuild is
+    O(window) but lands once per scale bump rather than per step (issue #298).
+    """
+    counts = counters.get(episode_id)
+    if counts is None or sizes.get(episode_id) != w.maxlen:
+        counts = Counter(w)
+        counters[episode_id] = counts
+        sizes[episode_id] = w.maxlen
+    return counts
+
+
+def append_counted(w: deque, counts: Counter, item: Any) -> int:
+    """Append ``item`` to ``w`` keeping ``counts`` in sync; return its new count.
+
+    The deque drops its oldest item when full, and the Counter must subtract
+    that same item or its counts drift upward forever, turning the O(1)
+    lookup back into a wrong answer (issue #298). Deleting at zero rather than
+    leaving a stale 0 keeps the Counter from accumulating one dead key per
+    distinct signature an episode has ever seen.
+    """
+    if len(w) >= (w.maxlen or 0):
+        evicted = w[0]
+        remaining = counts[evicted] - 1
+        if remaining <= 0:
+            del counts[evicted]
+        else:
+            counts[evicted] = remaining
+    w.append(item)
+    counts[item] += 1
+    return counts[item]
