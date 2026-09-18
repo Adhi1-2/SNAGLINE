@@ -32,11 +32,14 @@ from snagline import Monitor
 from snagline.config import Config
 from snagline.events import StepEvent, make_signature
 
-# Scaled-leg knobs. ``window_scale_steps=1000`` grows the effective window by
-# the base every 1000 steps, so with the default base of 12 and n=200_000 the
-# window saturates at ``max_window`` by ~43k steps and stays there for the rest
-# of the run -- the saturated O(window) case, not the brief growth phase.
-_SCALED_STEPS = 1_000
+# Scaled-leg knobs. The effective window is ``base * ceil(n / scale_steps)``
+# capped at ``max_window``, and each detector has its own base (loop 12,
+# cascade 10), so the slower-growing one sets the floor. scale_steps is small
+# enough that every leg saturates at its cap well inside the run: with 250 and
+# n=200_000, each max_window is reached by ~60k steps, so the remaining blocks
+# measure *sustained* O(window) cost rather than the growth phase -- which is
+# the only thing this leg exists to catch.
+_SCALED_STEPS = 250
 _SCALED_MAX_WINDOWS = (512, 2048)
 
 

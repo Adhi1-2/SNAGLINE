@@ -27,6 +27,18 @@ from snagline.monitor import Monitor
 from snagline.risk import FailureRisk
 from snagline.sinks.base import AlertSink
 
+# Scaled benchmark-leg knobs, mirrored from
+# ``benchmarks.overhead_benchmark`` (which is not importable from an installed
+# wheel, hence the fallback below). The effective window is
+# ``base * ceil(n / scale_steps)`` capped at ``max_window``, and each detector
+# has its own base (loop 12, cascade 10), so the slower-growing one sets the
+# floor. scale_steps is small enough that every leg saturates at its cap well
+# inside the run: with 250 and n=200_000, each max_window is reached by ~60k
+# steps, so the remaining blocks measure *sustained* O(window) cost rather
+# than the growth phase -- which is the only thing this leg exists to catch.
+_BENCH_SCALED_STEPS = 250
+_BENCH_SCALED_MAX_WINDOWS = (512, 2048)
+
 
 class _CountingSink:
     """Internal sink used by the CLI to report how many risks fired."""
@@ -1102,8 +1114,8 @@ def _inline_benchmark(
     n: int = 200_000,
     block: int = 2_000,
     *,
-    scale_steps: int = 1_000,
-    max_windows: tuple[int, ...] = (512, 2048),
+    scale_steps: int = _BENCH_SCALED_STEPS,
+    max_windows: tuple[int, ...] = _BENCH_SCALED_MAX_WINDOWS,
 ) -> dict:
     """Fallback benchmark used when the ``benchmarks`` extra is not importable
     (e.g. running from an installed wheel that does not ship it). Mirrors the
