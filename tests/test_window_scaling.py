@@ -10,6 +10,8 @@ base window misses on a long episode is still caught once scaled).
 from __future__ import annotations
 
 import itertools
+import random
+from collections import Counter, deque
 
 import pytest
 
@@ -17,7 +19,12 @@ from snagline.config import Config
 from snagline.detectors.error_cascade import ErrorCascadeDetector
 from snagline.detectors.latency_anomaly import LatencyAnomalyDetector
 from snagline.detectors.loop import LoopDetector
-from snagline.detectors.windowing import effective_window_size, next_window
+from snagline.detectors.windowing import (
+    append_counted,
+    effective_window_size,
+    maintain_counter,
+    next_window,
+)
 from snagline.events import StepEvent
 
 
@@ -325,3 +332,179 @@ def test_cusum_pending_drift_fields_stay_absent_when_refit_disabled() -> None:
     det.observe(_event("s0", 0.0, "s", latency_ms=10.0))
     raw = det.dump_state()["states"][0][1]
     assert not any(k.startswith("pending") for k in raw)
+
+
+# --- running counts vs rescanning (issue #298) ------------------------------
+# The scaled path answers ``deque.count`` / ``sum(w)`` questions from a Counter
+# maintained alongside the deque. If the Counter ever drifts from the window --
+# on eviction, on a lazy resize, or after a snapshot restore -- the O(1) answer
+# is silently *wrong*, not merely slow. These hold the invariant that the cached
+# counter always equals a fresh pass over the window.
+
+
+def test_append_counted_tracks_appends_evictions_and_deletes_at_zero() -> None:
+    w: deque = deque(maxlen=3)
+    counts: Counter = Counter()
+    assert append_counted(w, counts, "a") == 1
+    assert append_counted(w, counts, "a") == 2
+    assert append_counted(w, counts, "b") == 1
+    assert list(w) == ["a", "a", "b"]
+    assert counts == Counter({"a": 2, "b": 1})
+    # Window is full: appending "a" evicts the oldest "a", so the net count of
+    # "a" is unchanged (2 - 1 evicted + 1 appended).
+    assert append_counted(w, counts, "a") == 2
+    assert list(w) == ["a", "b", "a"]
+    # Evicting the last copy of a key removes it rather than leaving a stale 0,
+    # so the Counter cannot accumulate one dead key per distinct signature.
+    append_counted(w, counts, "c")  # evicts "a" -> a:1
+    append_counted(w, counts, "d")  # evicts "b" -> b gone
+    assert "b" not in counts
+    assert counts == Counter({"a": 1, "c": 1, "d": 1})
+    assert list(w) == ["a", "c", "d"]
+
+
+def test_maintain_counter_rebuilds_when_maxlen_moves() -> None:
+    counters: dict = {}
+    sizes: dict = {}
+    w = deque("aab", maxlen=3)
+    counts = maintain_counter(counters, sizes, "ep", w)
+    assert counts == Counter({"a": 2, "b": 1})
+    # Cached and reused while the maxlen is unchanged.
+    assert maintain_counter(counters, sizes, "ep", w) is counts
+    # next_window grows by swapping in a larger deque that keeps the recent
+    # items; a cached counter would then describe the *old* contents. The
+    # maxlen change must trigger a rebuild.
+    grown = deque(w, maxlen=6)
+    grown.extend(["a", "a", "a"])
+    rebuilt = maintain_counter(counters, sizes, "ep", grown)
+    assert rebuilt == Counter({"a": 5, "b": 1})
+    assert sizes["ep"] == 6
+
+
+def test_scaled_loop_running_count_equals_the_window() -> None:
+    """Every step, through evictions and lazy resizes: counter == Counter(w)."""
+    det = LoopDetector(config=Config(window_scale_steps=5, max_window=8))
+    # Enough steps to grow the window to the cap and churn it thoroughly.
+    sigs = [f"u{i}" for i in range(30)]
+    sigs += ["loopA", "loopB"] * 40  # a real repeat fills the window with 2 sigs
+    for i, sig in enumerate(sigs):
+        det.observe(_event(f"s{i}", float(i), sig))
+        w = det._windows["ep1"]
+        assert det._counts_map["ep1"] == Counter(w), f"drift at step {i}: {list(w)}"
+
+
+def test_scaled_near_duplicate_running_count_equals_the_window() -> None:
+    cfg = Config(loop_near_duplicate_enabled=True, window_scale_steps=5, max_window=8)
+    det = LoopDetector(config=cfg)
+    for i in range(60):
+        det.observe(_event(f"s{i}", float(i), "loopA" if i % 2 else f"u{i}"))
+        w = det._near_windows["ep1"]
+        assert det._near_counts_map["ep1"] == Counter(w), f"drift at step {i}"
+
+
+def test_scaled_cascade_running_total_equals_sum_of_window() -> None:
+    det = ErrorCascadeDetector(config=Config(window_scale_steps=5, max_window=8))
+    for i in range(60):
+        det.observe(_event(f"s{i}", float(i), "sig", error=(i % 3 == 0)))
+        w = det._windows["ep1"]
+        # The O(1) lookup must equal what ``sum(w)`` would have returned.
+        assert det._flags["ep1"][True] == sum(w), f"drift at step {i}: {list(w)}"
+
+
+def test_scaled_loop_counters_rebuilt_after_snapshot_restore() -> None:
+    # Near-duplicate mode on so the restore covers both counter families.
+    cfg = Config(
+        window_scale_steps=5,
+        max_window=8,
+        loop_near_duplicate_enabled=True,
+    )
+    det = LoopDetector(config=cfg)
+    for i in range(20):
+        det.observe(_event(f"s{i}", float(i), "sig-a"))
+    dumped = det.dump_state()
+    restored = LoopDetector(config=cfg)
+    restored.load_state(dumped)
+    # load_state drops the derived counters: a restored window carries its own
+    # maxlen, so a cached size would be trusted against the wrong scaling
+    # position. The rebuild lands on the first observe and the invariant holds.
+    for i in range(20, 44):
+        restored.observe(_event(f"s{i}", float(i), "sig-a" if i % 2 else "sig-b"))
+        assert restored._counts_map["ep1"] == Counter(restored._windows["ep1"])
+        assert restored._near_counts_map["ep1"] == Counter(
+            restored._near_windows["ep1"]
+        )
+
+
+def test_scaled_cascade_counters_rebuilt_after_snapshot_restore() -> None:
+    cfg = Config(window_scale_steps=5, max_window=8)
+    det = ErrorCascadeDetector(config=cfg)
+    for i in range(20):
+        det.observe(_event(f"s{i}", float(i), "sig", error=(i % 4 == 0)))
+    restored = ErrorCascadeDetector(config=cfg)
+    restored.load_state(det.dump_state())
+    for i in range(20, 44):
+        restored.observe(_event(f"s{i}", float(i), "sig", error=(i % 3 == 0)))
+        assert restored._flags["ep1"][True] == sum(restored._windows["ep1"])
+
+
+def test_scaling_off_keeps_the_default_path_counter_free() -> None:
+    """The bookkeeping is gated on scaling: with defaults it never runs, so
+    the published default-path numbers cannot move (issue #298's contract)."""
+    loop = LoopDetector(config=Config())
+    cascade = ErrorCascadeDetector(config=Config())
+    for i in range(30):
+        e = _event(f"s{i}", float(i), "loopA" if i % 2 else f"u{i}", error=(i % 4 == 0))
+        loop.observe(e)
+        cascade.observe(e)
+    assert loop._counts_map == {} and loop._window_sizes == {}
+    assert loop._near_counts_map == {} and loop._near_sizes == {}
+    assert cascade._flags == {} and cascade._sizes == {}
+
+
+def _naive_minimal_period(w: deque) -> int | None:
+    """The pre-#298 reference: full O(max_period x window) scan, no short-circuit."""
+    n = len(w)
+    for p in range(1, 256):
+        if n < 2 * p:
+            return None
+        if all(w[i] == w[i + p] for i in range(n - p)):
+            return p
+    return None
+
+
+@pytest.mark.parametrize(
+    "window",
+    [
+        # exact periods, several lengths each
+        deque((["a"] * 8), maxlen=8),
+        deque((["a", "b"] * 6), maxlen=12),
+        deque((["a", "b", "c"] * 5), maxlen=15),
+        deque((["a", "b", "c", "d"] * 3), maxlen=12),
+        deque((["x", "y", "z", "w", "v"] * 3), maxlen=15),
+        # periodic prefix then a break: NOT p-periodic for any p
+        deque(list("abababababc"), maxlen=11),
+        deque(list("abcabcabz"), maxlen=9),
+        # uniform: minimal period 1
+        deque(list("qqqq"), maxlen=4),
+        # too short to verify any period
+        deque(list("ab"), maxlen=8),
+    ],
+)
+def test_cycle_short_circuit_agrees_with_the_full_scan(window: deque) -> None:
+    det = LoopDetector(config=Config(loop_cycle_min_period=1, loop_cycle_max_period=32))
+    assert det._minimal_period(window) == _naive_minimal_period(window)
+
+
+def test_cycle_short_circuit_agrees_with_the_full_scan_on_random_windows() -> None:
+    """The ``w[-1] == w[-1-p]`` guard is a *necessary* condition for p-periodicity,
+    so it can only skip candidates the full scan would also reject. Verified by
+    brute force over many random windows rather than by trusting the algebra."""
+    det = LoopDetector(config=Config(loop_cycle_min_period=1, loop_cycle_max_period=32))
+    rng = random.Random(298)
+    alphabet = "abcd"
+    for _ in range(500):
+        n = rng.randint(2, 24)
+        w = deque(
+            (rng.choice(alphabet) for _ in range(n)), maxlen=rng.choice([4, 8, 16, 32])
+        )
+        assert det._minimal_period(w) == _naive_minimal_period(w), list(w)

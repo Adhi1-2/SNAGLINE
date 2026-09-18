@@ -215,12 +215,14 @@ class LoopDetector:
             # at most one per ``repeat_threshold`` slots. On the common path
             # nothing is looping, this dict has no entry, and the step costs
             # exactly what it did before.
-            counts = self._counts_map.get(event.episode_id) if scaled else None
+            fired_counts: Counter[str] | None = (
+                self._counts_map.get(event.episode_id) if scaled else None
+            )
             for sig in tuple(fired):
                 if sig == event.action_signature:
                     seen = count
-                elif counts is not None:
-                    seen = counts[sig]
+                elif fired_counts is not None:
+                    seen = fired_counts[sig]
                 else:
                     seen = w.count(sig)
                 if seen < self.repeat_threshold:

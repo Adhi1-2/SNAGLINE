@@ -15,7 +15,7 @@ Only the boolean ``error`` flag is consulted; no content is read
 
 from __future__ import annotations
 
-from collections import deque
+from collections import Counter, deque
 from typing import Any
 
 from snagline.config import Config
@@ -71,11 +71,9 @@ class ErrorCascadeDetector:
         # Dedupe: emit at most once per cascade, then stay quiet until the alarm
         # condition clears and re-arms (issue #4).
         self._fired: dict[str, bool] = {}
-        # Running count of True flags in each window (issue #298). ``sum(w)``
-        # is O(window) per step, which becomes the detector's whole cost once
-        # auto-scaling grows the window past a few hundred steps. Tracking the
-        # window as a Counter makes that a single lookup, and stays ahead of
-        # ``sum`` even at the small default window.
+        # Running count of True flags in each window (issue #298), maintained
+        # only while scaling is on; see ``observe`` for why the default path
+        # keeps using ``sum``.
         self._flags: dict[str, Counter[bool]] = {}
         self._sizes: dict[str, int | None] = {}
 
@@ -99,16 +97,21 @@ class ErrorCascadeDetector:
             self._scale_steps,
             self._max_window,
         )
-        # Keep the running total in step with the window. ``sum(w)`` scans the
-        # whole deque, which is O(window) per step -- the detector's entire
-        # cost once auto-scaling (issue #92) grows the window past a few
-        # hundred steps. Tracking the window as a Counter makes the count of
-        # True flags a single lookup, constant at any window size (issue #298).
-        flags = maintain_counter(
-            self._flags, self._sizes, event.episode_id, w
-        )
-        append_counted(w, flags, counted)
-        total = flags[True]
+        # Running count of True flags. ``sum(w)`` scans the whole deque, which
+        # is O(window) per step -- the detector's entire cost once auto-scaling
+        # (issue #92) grows the window past a few hundred steps. A Counter kept
+        # in step with the deque makes it a single lookup (issue #298). Gated
+        # on scaling: at the small fixed default window C-level ``sum`` is
+        # still faster than the Python bookkeeping, and the published
+        # default-path numbers must not move -- the same "defaults unchanged"
+        # contract as issue #92.
+        if self._scale_steps > 0:
+            flags = maintain_counter(self._flags, self._sizes, event.episode_id, w)
+            append_counted(w, flags, counted)
+            total = flags[True]
+        else:
+            w.append(counted)
+            total = sum(w)
 
         if counted:
             self._consecutive[event.episode_id] = (
@@ -119,9 +122,7 @@ class ErrorCascadeDetector:
 
         consecutive = self._consecutive[event.episode_id]
         consecutive_alarm = consecutive >= self.consecutive_threshold
-        density_alarm = (
-            total >= self.error_threshold and len(w) >= self.error_threshold
-        )
+        density_alarm = total >= self.error_threshold and len(w) >= self.error_threshold
 
         if not (consecutive_alarm or density_alarm):
             # The cascade cleared: re-arm so a later, independent cascade in the

@@ -1102,13 +1102,28 @@ def _inline_benchmark(n: int = 200_000, block: int = 2_000) -> dict:
     """Fallback benchmark used when the ``benchmarks`` extra is not importable
     (e.g. running from an installed wheel that does not ship it). Mirrors the
     shape of ``benchmarks.overhead_benchmark.run_benchmark`` so the CLI output
-    is identical (issue #6)."""
+    is identical (issue #6), including the scaled legs (issue #298)."""
     import statistics
 
     from snagline import Monitor
+    from snagline.config import Config
     from snagline.events import StepEvent, make_signature
 
-    monitor = Monitor.default()
+    def time_ingest(monitor: Monitor) -> tuple[float, float]:
+        for e in events[:block]:
+            monitor.ingest(e)
+        per_step_us: list[float] = []
+        for start in range(block, n, block):
+            chunk = events[start : start + block]
+            t0 = time.perf_counter()
+            for e in chunk:
+                monitor.ingest(e)
+            t1 = time.perf_counter()
+            per_step_us.append((t1 - t0) / len(chunk) * 1e6)
+        ordered = sorted(per_step_us)
+        p99_idx = min(len(ordered) - 1, int(0.99 * len(ordered)))
+        return statistics.median(per_step_us), ordered[p99_idx]
+
     events = [
         StepEvent(
             step_id=str(i),
@@ -1121,24 +1136,21 @@ def _inline_benchmark(n: int = 200_000, block: int = 2_000) -> dict:
         )
         for i in range(n)
     ]
-    for e in events[:block]:
-        monitor.ingest(e)
-    per_step_us: list[float] = []
-    for start in range(block, n, block):
-        chunk = events[start : start + block]
-        t0 = time.perf_counter()
-        for e in chunk:
-            monitor.ingest(e)
-        t1 = time.perf_counter()
-        per_step_us.append((t1 - t0) / len(chunk) * 1e6)
-    ordered = sorted(per_step_us)
-    p99_idx = min(len(ordered) - 1, int(0.99 * len(ordered)))
-    return {
+    median_us, p99_us = time_ingest(Monitor.default())
+    stats: dict = {
         "n": n,
-        "blocks": len(per_step_us),
-        "median_us": statistics.median(per_step_us),
-        "p99_us": ordered[p99_idx],
+        "blocks": len(range(block, n, block)),
+        "median_us": median_us,
+        "p99_us": p99_us,
+        "scaled": [],
     }
+    for cap in (512, 2048):
+        monitor = Monitor.default(Config(window_scale_steps=1_000, max_window=cap))
+        median_us, p99_us = time_ingest(monitor)
+        stats["scaled"].append(
+            {"max_window": cap, "median_us": median_us, "p99_us": p99_us}
+        )
+    return stats
 
 
 def _cmd_bench() -> int:
@@ -1154,6 +1166,12 @@ def _cmd_bench() -> int:
     print(f"  steps measured : {stats['n']}")
     print(f"  median        : {stats['median_us']:.2f} us/step")
     print(f"  p99           : {stats['p99_us']:.2f} us/step")
+    for leg in stats.get("scaled", []):
+        print(
+            f"  scaled max_window={leg['max_window']:<5d}: "
+            f"median {leg['median_us']:.2f} us/step, "
+            f"p99 {leg['p99_us']:.2f} us/step"
+        )
     return 0
 
 
