@@ -325,20 +325,24 @@ def test_restore_does_not_fabricate_horizon_risks_from_a_dead_clock(tmp_path) ->
     event does.
     """
     path = str(tmp_path / "snap.json")
-    src = _monitor(CapturingSink(), max_episode_wall_seconds=100.0,
-                   warn_fraction=0.8, idle_warn_seconds=30.0)
+    src = _monitor(
+        CapturingSink(),
+        max_episode_wall_seconds=100.0,
+        warn_fraction=0.8,
+        idle_warn_seconds=30.0,
+    )
     _feed(src, _event("s1", 0.4))  # short-lived source process
     src.snapshot(path)
 
     sink = CapturingSink()
-    dst = _monitor(sink, max_episode_wall_seconds=100.0,
-                   warn_fraction=0.8, idle_warn_seconds=30.0)
+    dst = _monitor(
+        sink, max_episode_wall_seconds=100.0, warn_fraction=0.8, idle_warn_seconds=30.0
+    )
     dst.restore(path)
     # A new process whose perf_counter is tens of thousands of seconds on.
     _feed(dst, _event("s2", 40_000.0))
 
-    spurious = [r for r in sink.risks
-                if r.trigger in ("idle_gap", "wall_clock_budget")]
+    spurious = [r for r in sink.risks if r.trigger in ("idle_gap", "wall_clock_budget")]
     assert not spurious, [(r.trigger, r.score, r.detail) for r in spurious]
 
 
@@ -378,8 +382,9 @@ def test_restore_preserves_budget_already_spent(tmp_path) -> None:
     _feed(dst, _event("s3", 0.0), _event("s4", 10.0))  # fresh clock, +10s
 
     assert dst._clocks["ep1"].elapsed == 105.0
-    assert any(r.trigger == "wall_clock_budget" and r.score == 1.0
-               for r in sink.risks), "the carried-over 95s must still count"
+    assert any(
+        r.trigger == "wall_clock_budget" and r.score == 1.0 for r in sink.risks
+    ), "the carried-over 95s must still count"
 
 
 def test_restore_replaces_the_time_axis_like_everything_else() -> None:
@@ -392,11 +397,24 @@ def test_restore_replaces_the_time_axis_like_everything_else() -> None:
     sink = CapturingSink()
     m = _monitor(sink, max_episode_wall_seconds=100.0, warn_fraction=0.8)
     _feed(m, _event("a1", 0.0, "A"), _event("a2", 95.0, "A"))
-    m.restore_dict({"format_version": 1, "detectors": {}, "sinks": {},
-                    "time_axis": {"B": {"last_ts": 5.0, "elapsed": 0.0,
-                                        "idle_fired": False, "warned": False,
-                                        "breached": False}},
-                    "live_episodes": ["B"]})
+    m.restore_dict(
+        {
+            "format_version": 1,
+            "detectors": {},
+            "sinks": {},
+            "time_axis": {
+                "B": {
+                    "last_ts": 5.0,
+                    "elapsed": 0.0,
+                    "idle_fired": False,
+                    "warned": False,
+                    "breached": False,
+                }
+            },
+            "live_episodes": ["B"],
+        }
+    )
     assert "A" not in m._clocks, (
-        f"orphan clock survives restore: {m._clocks['A'].elapsed}s spent")
+        f"orphan clock survives restore: {m._clocks['A'].elapsed}s spent"
+    )
     assert "B" in m._clocks

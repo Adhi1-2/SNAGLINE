@@ -297,7 +297,8 @@ def test_cusum_pending_drift_survives_snapshot_restore() -> None:
     restored = LatencyAnomalyDetector(config=cfg)
     restored.load_state(live.dump_state())
     assert restored._states[("ep1", "t")].pending_drift, (
-        "a deferred baseline shift must survive snapshot/restore")
+        "a deferred baseline shift must survive snapshot/restore"
+    )
 
     # The deferred risk must actually be delivered on the first quiet step.
     live2 = LatencyAnomalyDetector(config=cfg)
@@ -313,8 +314,8 @@ def test_cusum_pending_drift_survives_snapshot_restore() -> None:
                 delivered[key] += 1
     assert delivered["live"] == 1, "the live detector must deliver the shift"
     assert delivered["restored"] == 1, (
-        "the restored detector must deliver it too, got "
-        f"{delivered['restored']}")
+        f"the restored detector must deliver it too, got {delivered['restored']}"
+    )
 
 
 def test_cusum_pending_drift_fields_stay_absent_when_refit_disabled() -> None:
