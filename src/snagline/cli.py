@@ -1098,11 +1098,18 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _inline_benchmark(n: int = 200_000, block: int = 2_000) -> dict:
+def _inline_benchmark(
+    n: int = 200_000,
+    block: int = 2_000,
+    *,
+    scale_steps: int = 1_000,
+    max_windows: tuple[int, ...] = (512, 2048),
+) -> dict:
     """Fallback benchmark used when the ``benchmarks`` extra is not importable
     (e.g. running from an installed wheel that does not ship it). Mirrors the
-    shape of ``benchmarks.overhead_benchmark.run_benchmark`` so the CLI output
-    is identical (issue #6), including the scaled legs (issue #298)."""
+    shape of ``benchmarks.overhead_benchmark.run_benchmark`` -- signature
+    included -- so the CLI output is identical (issue #6), including the
+    scaled legs (issue #298)."""
     import statistics
 
     from snagline import Monitor
@@ -1144,8 +1151,10 @@ def _inline_benchmark(n: int = 200_000, block: int = 2_000) -> dict:
         "p99_us": p99_us,
         "scaled": [],
     }
-    for cap in (512, 2048):
-        monitor = Monitor.default(Config(window_scale_steps=1_000, max_window=cap))
+    for cap in max_windows:
+        monitor = Monitor.default(
+            Config(window_scale_steps=scale_steps, max_window=cap)
+        )
         median_us, p99_us = time_ingest(monitor)
         stats["scaled"].append(
             {"max_window": cap, "median_us": median_us, "p99_us": p99_us}
