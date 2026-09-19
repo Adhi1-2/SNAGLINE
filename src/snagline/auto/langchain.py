@@ -87,12 +87,30 @@ def _wrap_one(monitor, original, tool_name):
 
 def wrap_client(monitor, client):
     """Patch the invoke/generate entrypoints on ``client`` in place."""
+    _patch_client(monitor, client)
+    return client
+
+
+def _patch_client(monitor, client) -> int:
+    """Counting core of :func:`wrap_client` (issue #321).
+
+    Returns the number of methods newly wrapped, so the instrument_*
+    entrypoints can honour their documented "True if anything was patched"
+    contract on the explicit-client path.
+    """
+    patched = 0
     for name in _LANGCHAIN_METHODS:
         method = getattr(client, name, None)
         if method is None or not callable(method):
             continue
         setattr(client, name, _wrap_one(monitor, method, "langchain." + name))
-    return client
+        patched += 1
+    if patched == 0:
+        logger.warning(
+            "snagline.auto: wrap_client found no langchain method to patch on %r",
+            client,
+        )
+    return patched
 
 
 def instrument_langchain(monitor, client=None) -> bool:
@@ -103,8 +121,7 @@ def instrument_langchain(monitor, client=None) -> bool:
     Returns True if anything was patched, False if LangChain is absent.
     """
     if client is not None:
-        wrap_client(monitor, client)
-        return True
+        return _patch_client(monitor, client) != 0
     try:  # pragma: no cover - exercised only with LangChain installed
         from langchain.chains.base import Chain  # type: ignore
         from langchain_core.language_models import BaseLanguageModel  # type: ignore

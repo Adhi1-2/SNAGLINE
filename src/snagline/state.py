@@ -120,21 +120,59 @@ class MemoryStateBackend:
 class RedisStateBackend:  # pragma: no cover - optional, requires redis
     """Shared backend: a Redis lock so workers coordinate across processes."""
 
-    def __init__(self, url: str, prefix: str = "snagline:") -> None:
+    def __init__(
+        self,
+        url: str,
+        prefix: str = "snagline:",
+        lock_timeout: float = 300.0,
+        lock_blocking_timeout: float = 30.0,
+    ) -> None:
         import redis
 
         self._r = redis.Redis.from_url(url)
         self._prefix = prefix
+        # TTL on the held lock. The critical section covers a whole episode's
+        # ingest work, so a 30s default expired under realistic load and made
+        # release() raise LockNotOwnedError out of the finally into ingest
+        # (issue #326); 300s is a safer default and is now configurable.
+        self._lock_timeout = lock_timeout
+        self._lock_blocking_timeout = lock_blocking_timeout
 
     @contextmanager
     def episode_lock(self, episode_id: str) -> Iterator[None]:
-        lock = self._r.lock(self._prefix + "lock:" + episode_id, timeout=30)
-        acquired = lock.acquire(blocking=True, blocking_timeout=30)
+        lock = self._r.lock(
+            self._prefix + "lock:" + episode_id, timeout=self._lock_timeout
+        )
+        acquired = lock.acquire(
+            blocking=True, blocking_timeout=self._lock_blocking_timeout
+        )
+        if not acquired:
+            # redis-py's acquire() returns False on blocking_timeout, it does
+            # not raise (only the `with lock:` form raises LockError). Yielding
+            # anyway would run the whole detector critical section with no lock
+            # held, silently disabling the one guarantee this backend exists to
+            # provide (issue #325). Fail loudly instead.
+            raise RuntimeError(
+                f"could not acquire Redis episode lock for {episode_id!r} "
+                f"within {self._lock_blocking_timeout}s"
+            )
         try:
             yield
         finally:
-            if acquired:
+            try:
                 lock.release()
+            except Exception:
+                # The TTL expired mid-section: redis-py fails the token check
+                # and raises LockNotOwnedError out of this finally, which would
+                # surface from the caller's ingest/end_episode looking like the
+                # episode's own work raised. The lock is already gone -- there
+                # is nothing to release -- so log and move on (issue #326).
+                logger.warning(
+                    "snagline: Redis episode lock for %r was lost before "
+                    "release (TTL expired); mutual exclusion may have been "
+                    "violated -- consider a larger lock_timeout",
+                    episode_id,
+                )
 
     def release(self, episode_id: str) -> None:
         """No-op: Redis locks are per-acquisition and expire on their own.

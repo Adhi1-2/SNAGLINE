@@ -330,6 +330,18 @@ def wrap_client(monitor, client):
     (whichever exist) so each call emits a ``StepEvent``. Returns the same
     client for chaining.
     """
+    _patch_client(monitor, client)
+    return client
+
+
+def _patch_client(monitor, client) -> int:
+    """Counting core of :func:`wrap_client` (issue #321).
+
+    ``wrap_client`` must keep returning the client for chaining, so the patch
+    count lives here. Returns the number of methods newly wrapped, mirroring
+    ``_patch_resource_classes``; the instrument_* entrypoints use it to honour
+    their documented "True if anything was patched" contract.
+    """
     patched = 0
     for path in ("chat.completions.create", "completions.create"):
         cur = client
@@ -352,7 +364,7 @@ def wrap_client(monitor, client):
             "snagline.auto: wrap_client found no create method to patch on %r",
             client,
         )
-    return client
+    return patched
 
 
 def _patch_resource_classes(monitor) -> int:
@@ -425,8 +437,7 @@ def instrument_openai(monitor, client=None) -> bool:
     False if the SDK is not importable or nothing could be patched.
     """
     if client is not None:
-        wrap_client(monitor, client)
-        return True
+        return _patch_client(monitor, client) != 0
     if OpenAI is None:
         logger.warning("snagline.auto: OpenAI SDK not installed; nothing to patch")
         return False

@@ -52,9 +52,13 @@ class HeartbeatSink:
                 os.close(fd)
                 os.utime(self._path, None)
             self._fault_logged = False
-        except OSError as exc:
+        except (OSError, ValueError, TypeError) as exc:
             # Unwritable path, read-only filesystem, whatever: never raise
             # into the host agent, just say so once (issue #14 style).
+            # ValueError/TypeError are not errno failures: os.utime raises
+            # ValueError for an embedded NUL byte and os.makedirs can raise
+            # it for a malformed path, and both would escape into the watch
+            # loop that wired touch() in as its on_wait callback (issue #323).
             if not self._fault_logged:
                 self._fault_logged = True
                 logger.warning(

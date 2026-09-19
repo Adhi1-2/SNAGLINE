@@ -896,7 +896,20 @@ class Monitor:
                             break
             if entry is None or matched_key is None:
                 continue
-            load(entry)
+            try:
+                load(entry)
+            except Exception:
+                # A malformed entry (truncated JSON, version skew, a hand
+                # edit) must not abort the restore after earlier detectors
+                # already loaded -- restore_dict promises a caller that
+                # catches the ValueError is never left half-restored, and a
+                # bad entry would break that (issue #324). Mirrors the
+                # time_axis block below, which already tolerates this.
+                logger.warning(
+                    "snagline: malformed snapshot entry for detector %r; ignored",
+                    matched_key,
+                )
+                continue
             consumed.add(matched_key)
         orphaned = {
             k
@@ -910,11 +923,32 @@ class Monitor:
                 len(orphaned),
             )
         dumped_sinks: dict[str, Any] = data.get("sinks") or {}
+        consumed_sinks: set[str] = set()
         for i, sink in enumerate(self._sinks):
             load = getattr(sink, "load_state", None)
             key = f"{i}:{type(sink).__name__}"
             if callable(load) and dumped_sinks.get(key) is not None:
-                load(dumped_sinks[key])
+                try:
+                    load(dumped_sinks[key])
+                except Exception:
+                    # Same contract as the detector loop above (issue #324):
+                    # skip the entry, not the rest of the restore.
+                    logger.warning(
+                        "snagline: malformed snapshot entry for sink %r; ignored",
+                        key,
+                    )
+                    continue
+                consumed_sinks.add(key)
+        orphaned_sinks = {
+            k
+            for k, v in dumped_sinks.items()
+            if v is not None and k not in consumed_sinks
+        }
+        if orphaned_sinks:
+            logger.warning(
+                "snagline: snapshot carried state for %d unknown sink slot(s); ignored",
+                len(orphaned_sinks),
+            )
         time_axis_data = data.get("time_axis")
         if isinstance(time_axis_data, dict):
             for episode_id, clock_data in time_axis_data.items():
