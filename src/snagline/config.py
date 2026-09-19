@@ -117,6 +117,40 @@ def _validated_horizon(cfg: Config) -> None:
         )
 
 
+def _validated_token_runaway(cfg: Config) -> None:
+    """Validate the token-budget envelope knobs (issue #84); raise when invalid.
+
+    Same contract as the horizon knobs above (issue #92): an out-of-range
+    value is a configuration error and fails loudly at construction/resolve
+    time instead of silently degrading detection downstream. Both knobs are
+    opt-in (``token_runaway_enabled`` defaults off), so stock configurations
+    never hit these checks.
+
+    ``episode_token_budget`` documents ``None`` as "envelope disabled"; a
+    budget of zero tokens can never be honored, so ``total >= budget`` is true
+    on the first token-bearing step and the detector emits a score-1.0
+    ``budget_breach`` immediately. Zero is far more likely a mistyped or
+    unset "disable" than a real budget, and a negative budget is the same
+    failure one step earlier.
+    ``token_budget_warn_fraction`` is the envelope's analogue of
+    ``warn_fraction`` and gets the same range: ``<= 0`` makes the warning
+    threshold ``<= 0``, so ``total >= threshold`` holds on the first step and
+    the warning fires unconditionally, and ``> 1.0`` puts the threshold above
+    the budget, so the pre-breach warning can never fire before the breach
+    silences it.
+    """
+    if cfg.episode_token_budget is not None and cfg.episode_token_budget <= 0:
+        raise ValueError(
+            "episode_token_budget must be positive when set (None disables "
+            f"the envelope); got {cfg.episode_token_budget!r}"
+        )
+    if not 0.0 < cfg.token_budget_warn_fraction <= 1.0:
+        raise ValueError(
+            "token_budget_warn_fraction must be within (0, 1]; got "
+            f"{cfg.token_budget_warn_fraction!r}"
+        )
+
+
 def _validated_log_format(value: str) -> str:
     """Normalize and validate a ``log_format`` value; raise when invalid.
 
@@ -298,8 +332,11 @@ class Config:
     token_cusum_k: float = 0.5  # slack parameter
     token_cusum_h: float = 5.0  # alarm threshold
     token_min_samples: int = 20  # warm-up before sustained-burn alarms
-    episode_token_budget: int | None = None  # total tokens; None disables envelope
-    token_budget_warn_fraction: float = 0.8  # single warning at this fraction
+    # total tokens; None disables envelope, must be positive when set
+    episode_token_budget: int | None = None
+    # single warning at this fraction; must be within (0, 1] (issue #317):
+    # 0.0 fires it on the first step and >1.0 makes it unreachable
+    token_budget_warn_fraction: float = 0.8
 
     # Meltdown detector (issue #85, opt-in until the accuracy gate lands).
     # Sliding-window Shannon entropy over tool-call identities; flags both the
@@ -475,6 +512,9 @@ class Config:
         # Issue #132: same policy for the stagnation knobs. The defaults are
         # always valid, so stock configurations never hit these checks.
         _validated_stagnation(self)
+        # Issue #317: same policy for the token-budget envelope. Its defaults
+        # are valid too, so only a configured value can trip these checks.
+        _validated_token_runaway(self)
         _validated_max_live_episodes(self)
 
     # --- 12-factor configuration (project.md §5.4, ATTACH_ANY_SYSTEM P0) -----
@@ -582,5 +622,9 @@ class Config:
         # with a clear error, not crash later inside StagnationDetector or,
         # worse, run silently mis-configured.
         _validated_stagnation(cfg)
+        # Same re-validation for the token-budget envelope (issue #317):
+        # SNAGLINE_EPISODE_TOKEN_BUDGET=0 must abort startup with a clear
+        # error, not page at critical severity on the first ingested step.
+        _validated_token_runaway(cfg)
         _validated_max_live_episodes(cfg)
         return cfg
