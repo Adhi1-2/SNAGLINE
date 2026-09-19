@@ -34,6 +34,15 @@ TriggerType = Literal[
     # single pre-breach warning (score 0.8) and the breach itself (1.0).
     "idle_gap",
     "wall_clock_budget",
+    # Loop hardening modes (issue #89) and the side-effect guard. These are
+    # emitted alongside the plain "loop" trigger by detectors/loop.py and
+    # detectors/side_effect_guard.py; like every other entry above, the
+    # trigger names are API -- CONTINUUM's risk-policy table maps
+    # "side_effect_duplicate" to ABORT + immediate reconcile by name.
+    "near_duplicate_loop",
+    "cycle",
+    "stall",
+    "side_effect_duplicate",
 ]
 
 # Severity ordering is informational only; sinks decide what to do with it.

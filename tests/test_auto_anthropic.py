@@ -64,9 +64,15 @@ def test_wrap_client_records_error_and_propagates():
     assert mon.events[0].error is True
 
 
-def test_instrument_anthropic_without_sdk_is_safe_noop():
+def test_instrument_anthropic_without_sdk_is_safe_noop(monkeypatch, caplog):
+    # Force the SDK-absent branch regardless of whether the anthropic package
+    # is installed in this venv (issue #295).
+    monkeypatch.setattr("snagline.auto.anthropic.Anthropic", None)
+    monkeypatch.setattr("snagline.auto.anthropic.AsyncAnthropic", None)
     mon = _SpyMonitor()
-    assert instrument_anthropic(mon) is False
+    with caplog.at_level("WARNING"):
+        assert instrument_anthropic(mon) is False
+    assert "nothing to patch" in caplog.text
 
 
 def test_instrument_anthropic_with_explicit_client():

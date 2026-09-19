@@ -50,8 +50,8 @@ instrument_langchain(monitor)        # patches langchain BaseLLM / Chain entrypo
 
 ```python
 from snagline.adapters.raw import watch          # generic StepEvent stream
-from snagline.adapters.langchain import LLMChainObserver
-from snagline.adapters.langgraph import GraphObserver
+from snagline.adapters.langchain_adapter import SnaglineCallbackHandler
+from snagline.adapters.langgraph_adapter import watch_graph
 from snagline.adapters.autogen import SnaglineAutogenHandler
 from snagline.adapters.crewai import snagline_step_callback
 from snagline.adapters.continuum_adapter import ContinuumAdapter

@@ -7,9 +7,10 @@ shard its lock by episode instead of serializing all episodes behind one
 global lock (the verified bottleneck in monitor.py).
 
 The default ``MemoryStateBackend`` is process-local. ``RedisStateBackend``
-(optional, behind the ``redis`` extra) provides a shared lock across workers
-so a horizontally-scaled deployment does not double-count; it is imported
-lazily so the core stays zero-dependency.
+(optional; ``pip install redis`` -- there is no ``snagline[redis]`` extra)
+provides a shared lock across workers so a horizontally-scaled deployment
+does not double-count; it is imported lazily so the core stays
+zero-dependency.
 """
 
 from __future__ import annotations

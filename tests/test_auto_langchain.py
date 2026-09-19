@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from snagline.auto.langchain import instrument_langchain, wrap_client
 
 
@@ -53,9 +55,18 @@ def test_wrap_client_records_error_and_propagates():
     assert mon.events[0].error is True
 
 
-def test_instrument_langchain_without_sdk_is_safe_noop():
+def test_instrument_langchain_without_sdk_is_safe_noop(monkeypatch, caplog):
+    # instrument_langchain imports langchain lazily inside the function, so
+    # hide both modules to force the absent branch regardless of what is
+    # installed in this venv (issue #295).
+    monkeypatch.setitem(sys.modules, "langchain", None)
+    monkeypatch.setitem(sys.modules, "langchain.chains.base", None)
+    monkeypatch.setitem(sys.modules, "langchain_core", None)
+    monkeypatch.setitem(sys.modules, "langchain_core.language_models", None)
     mon = _SpyMonitor()
-    assert instrument_langchain(mon) is False
+    with caplog.at_level("WARNING"):
+        assert instrument_langchain(mon) is False
+    assert "nothing to patch" in caplog.text
 
 
 def test_instrument_langchain_with_explicit_client():

@@ -39,17 +39,17 @@ The trigger string is API: CONTINUUM's policy table maps
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from snagline.config import Config
 from snagline.detectors.base import snapshot_items
 from snagline.events import StepEvent
 from snagline.risk import FailureRisk, TriggerType
 
-# Declared here with the loop hardening modes' precedent (issue #89): widening
-# the TriggerType literal in risk.py belongs to a change scoped to that module;
-# the cast keeps mypy exact while the runtime value is a str.
-TRIGGER_SIDE_EFFECT_DUPLICATE = cast(TriggerType, "side_effect_duplicate")
+# Declared in the TriggerType literal in risk.py alongside the loop hardening
+# modes (issues #89 / #304): the trigger name is API, since CONTINUUM's
+# risk-policy table maps "side_effect_duplicate" to ABORT + reconcile by name.
+TRIGGER_SIDE_EFFECT_DUPLICATE: TriggerType = "side_effect_duplicate"
 
 
 class SideEffectGuardDetector:

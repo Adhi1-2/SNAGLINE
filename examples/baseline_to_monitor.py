@@ -13,10 +13,12 @@ This walks the full next-phase pipeline without any optional dependency:
 Run it directly::
 
     python examples/baseline_to_monitor.py
+    python examples/baseline_to_monitor.py --healthy   # healthy episode only
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import tempfile
 from pathlib import Path
@@ -61,6 +63,14 @@ def _write_healthy_trajectory(path: Path) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--healthy",
+        action="store_true",
+        help="Only run the healthy episode (no detections); skip the drifting one.",
+    )
+    args = parser.parse_args()
+
     with tempfile.TemporaryDirectory() as tmp:
         traj = Path(tmp) / "healthy.jsonl"
         _write_healthy_trajectory(traj)
@@ -92,6 +102,9 @@ def main() -> None:
                     latency_ms=100.0 + (i % 3),
                 )
         print(f"Healthy episode risks: {len(collector.risks)} (expect 0)")
+
+        if args.healthy:
+            return
 
         # Step 4b: a drifting episode -> rising error rate trips goal_drift
         # (and the error-cascade detector), which the ml ensemble elevates.

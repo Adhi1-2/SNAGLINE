@@ -8,9 +8,12 @@ Otherwise a new detector would silently stay outside the honesty gate.
 from __future__ import annotations
 
 import re
+import typing
 from pathlib import Path
 
 from benchmarks.detection_accuracy import INTENTIONALLY_UNGATED, SHIPPED_TRIGGERS
+
+from snagline.risk import TriggerType
 
 
 def _collect_emitted_triggers() -> set[str]:
@@ -22,10 +25,11 @@ def _collect_emitted_triggers() -> set[str]:
     # Pattern for trigger strings in detectors: "loop", "cycle", etc., as
     # trigger arguments to FailureRisk or TRIGGER_* constants.
     text_pat = re.compile(r'trigger\s*=\s*["\']([^"\']+)["\']')
+    # TRIGGER_* constants: the literal form (issue #304) and the historical
+    # cast(TriggerType, ...) form, so a revert to casting is still caught.
     const_pat = re.compile(
-        r'TRIGGER_[A-Z_]+\s*=\s*cast\(TriggerType,\s*["\']([^"\']+)["\']\)'
+        r'TRIGGER_[A-Z_]+\s*(?::\s*TriggerType\s*)?=\s*(?:cast\(TriggerType,\s*)?["\']([^"\']+)["\']'
     )
-    literal_pat = re.compile(r'"([a-z_]+)"')
     for path in root.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         # TRIGGER_* constants
@@ -37,28 +41,11 @@ def _collect_emitted_triggers() -> set[str]:
             val = m.group(1)
             if re.fullmatch(r"[a-z_]+", val):
                 triggers.add(val)
-        # Also check risk.py Literal for any remaining
-        if path.name == "risk.py":
-            for m in literal_pat.finditer(text):
-                val = m.group(1)
-                # Only consider trigger-like strings that are in known set;
-                # risk.py Literal includes loop, error_cascade, etc.
-                if val in {
-                    "loop",
-                    "error_cascade",
-                    "latency_anomaly",
-                    "goal_drift",
-                    "ml_ensemble",
-                    "stagnation",
-                    "token_runaway",
-                    "budget_breach",
-                    "meltdown",
-                    "silent_abort",
-                    "governance_decay",
-                    "idle_gap",
-                    "wall_clock_budget",
-                }:
-                    triggers.add(val)
+    # The TriggerType literal is the closed set of trigger strings that can
+    # reach FailureRisk, so read it directly rather than regex-scanning
+    # risk.py (a regex silently missed the loop-hardening / side-effect
+    # triggers for as long as they were cast()d in, issue #304).
+    triggers.update(typing.get_args(TriggerType))
     # Normalize meltdown to its label-space split, as harness does.
     if "meltdown" in triggers:
         triggers.remove("meltdown")

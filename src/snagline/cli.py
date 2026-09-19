@@ -2,11 +2,14 @@
 
 Implements ``snagline replay``, ``snagline bench``, ``snagline watch`` (live
 stdin or file-follow mode), ``snagline serve`` (the stdlib sidecar HTTP
-server), and ``snagline hook`` (the universal command-hook bridge for
+server), ``snagline hook`` (the universal command-hook bridge for
 external agent processes: Claude Code, OpenClaw, Hermes, anything that can
-run a shell command). ``baseline`` is registered but intentionally not
-implemented - it belongs to the ``ml`` extra, a later, explicitly-ordered
-build step - and errors clearly rather than silently doing nothing.
+run a shell command), and ``snagline baseline`` (fit or retrain a persisted
+healthy per-tool baseline from a recorded trajectory; the result feeds
+``GoalDriftDetector`` and the latency detectors' calibrated baselines).
+``baseline`` is zero-dependency core -- the optional ``ml`` extra only adds
+the numpy/scikit-learn ESN ensemble used by the ml-ensemble detector, not
+this command.
 """
 
 from __future__ import annotations
@@ -1099,10 +1102,14 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
 
 def _inline_benchmark(n: int = 200_000, block: int = 2_000) -> dict:
-    """Fallback benchmark used when the ``benchmarks`` extra is not importable
-    (e.g. running from an installed wheel that does not ship it). Mirrors the
-    shape of ``benchmarks.overhead_benchmark.run_benchmark`` so the CLI output
-    is identical (issue #6)."""
+    """Fallback benchmark used when ``benchmarks.overhead_benchmark`` is not
+    importable. ``benchmarks/`` lives at the repository root, outside the
+    ``[tool.setuptools.packages.find] where = ["src"]`` scope, so it is never
+    shipped in a wheel and this fallback is what an installed copy of
+    snagline runs; a source checkout imports the real module instead (see the
+    call site below). Mirrors the shape of
+    ``benchmarks.overhead_benchmark.run_benchmark`` so the CLI output is
+    identical either way (issue #6)."""
     import statistics
 
     from snagline import Monitor
