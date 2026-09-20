@@ -310,3 +310,111 @@ def test_jump_past_budget_emits_no_stale_warning_afterward() -> None:
     budget = [r for r in sink.risks if r.trigger == "wall_clock_budget"]
     assert [(r.step_id, r.score) for r in budget] == [("s2", 1.0)]
     assert budget[0].severity == "critical"
+
+
+# --- restore across a process restart ---------------------------------------
+
+
+def test_restore_does_not_fabricate_horizon_risks_from_a_dead_clock(tmp_path) -> None:
+    """A restored clock's ``last_ts`` is a raw event timestamp from the process
+    that wrote the snapshot. The shipped auto-instrumentation stamps events
+    with ``perf_counter``, whose epoch is process-local, so the first
+    post-restore event must not measure its delta from the old epoch: it
+    invented both a 40000s idle_gap and a 40000s budget breach from a single
+    healthy event. The clock re-anchors on that event instead, as a first
+    event does.
+    """
+    path = str(tmp_path / "snap.json")
+    src = _monitor(
+        CapturingSink(),
+        max_episode_wall_seconds=100.0,
+        warn_fraction=0.8,
+        idle_warn_seconds=30.0,
+    )
+    _feed(src, _event("s1", 0.4))  # short-lived source process
+    src.snapshot(path)
+
+    sink = CapturingSink()
+    dst = _monitor(
+        sink, max_episode_wall_seconds=100.0, warn_fraction=0.8, idle_warn_seconds=30.0
+    )
+    dst.restore(path)
+    # A new process whose perf_counter is tens of thousands of seconds on.
+    _feed(dst, _event("s2", 40_000.0))
+
+    spurious = [r for r in sink.risks if r.trigger in ("idle_gap", "wall_clock_budget")]
+    assert not spurious, [(r.trigger, r.score, r.detail) for r in spurious]
+
+
+def test_restore_does_not_freeze_the_budget_below_the_old_epoch(tmp_path) -> None:
+    """The mirror case: the source process ran long (its perf_counter is far
+    above the new one's), so every post-restore delta is negative, ``elapsed``
+    never advanced, and 200s of real new time produced no breach at all. The
+    budget was silently extended.
+    """
+    path = str(tmp_path / "snap.json")
+    src = _monitor(CapturingSink(), max_episode_wall_seconds=100.0)
+    _feed(src, _event("s1", 3000.0), _event("s2", 3095.0))  # 95s spent, warned
+    src.snapshot(path)
+
+    sink = CapturingSink()
+    dst = _monitor(sink, max_episode_wall_seconds=100.0)
+    dst.restore(path)
+    for ts in range(0, 200):  # 200s of genuinely new time
+        _feed(dst, _event(f"r{ts}", float(ts)))
+
+    clock = dst._clocks["ep1"]
+    assert clock.elapsed >= 100.0, f"budget frozen at {clock.elapsed}s"
+    assert clock.breached, "the real breach never fired"
+
+
+def test_restore_preserves_budget_already_spent(tmp_path) -> None:
+    """Re-anchoring must not forgive budget: the 95s consumed before the
+    restart still counts, so a further 10s breaches exactly as it should."""
+    path = str(tmp_path / "snap.json")
+    src = _monitor(CapturingSink(), max_episode_wall_seconds=100.0)
+    _feed(src, _event("s1", 0.0), _event("s2", 95.0))
+    src.snapshot(path)
+
+    sink = CapturingSink()
+    dst = _monitor(sink, max_episode_wall_seconds=100.0)
+    dst.restore(path)
+    _feed(dst, _event("s3", 0.0), _event("s4", 10.0))  # fresh clock, +10s
+
+    assert dst._clocks["ep1"].elapsed == 105.0
+    assert any(
+        r.trigger == "wall_clock_budget" and r.score == 1.0 for r in sink.risks
+    ), "the carried-over 95s must still count"
+
+
+def test_restore_replaces_the_time_axis_like_everything_else() -> None:
+    """restore_dict rebuilds every detector wholesale and clears the LRU, but
+    used to *merge* _clocks. A live monitor restored onto a snapshot that does
+    not carry episode A left A's clock behind: A resumed with 95s of budget
+    already spent and its warning latch set while every detector treated it
+    as brand new.
+    """
+    sink = CapturingSink()
+    m = _monitor(sink, max_episode_wall_seconds=100.0, warn_fraction=0.8)
+    _feed(m, _event("a1", 0.0, "A"), _event("a2", 95.0, "A"))
+    m.restore_dict(
+        {
+            "format_version": 1,
+            "detectors": {},
+            "sinks": {},
+            "time_axis": {
+                "B": {
+                    "last_ts": 5.0,
+                    "elapsed": 0.0,
+                    "idle_fired": False,
+                    "warned": False,
+                    "breached": False,
+                }
+            },
+            "live_episodes": ["B"],
+        }
+    )
+    assert "A" not in m._clocks, (
+        f"orphan clock survives restore: {m._clocks['A'].elapsed}s spent"
+    )
+    assert "B" in m._clocks

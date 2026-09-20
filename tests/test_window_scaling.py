@@ -272,3 +272,56 @@ def test_near_duplicate_mode_counts_events_once_per_family() -> None:
         det.observe(_event(f"s{i}", float(i), "loopA" if i % 2 else f"u{i}"))
     assert det._counts["ep1"] == 25  # advanced once per event, not twice
     assert det._near_counts["ep1"] == 25
+
+
+def test_cusum_pending_drift_survives_snapshot_restore() -> None:
+    """A baseline shift detected on the same step a CUSUM alarm held the risk
+    slot is deferred to the next quiet step. dump_state/load_state used to
+    drop the deferral entirely, so a restart taken between detection and
+    emission silently lost the "baseline shifted" risk forever.
+
+    The fixture leaves a deferred shift held: baseline moved 9 -> 70ms while
+    an alarm owned the slot.
+    """
+    cfg = Config(cusum_k=0.5, cusum_h=2.0, cusum_min_samples=3, cusum_refit_every=4)
+
+    def feed(det: LatencyAnomalyDetector, seq: list[float]) -> None:
+        for i, lat in enumerate(seq):
+            det.observe(_event(f"s{i}", float(i), "s", latency_ms=lat))
+
+    seq = [12.0, 8.0, 8.0, 100.0, 100.0, 100.0, 100.0, 10.0, 100.0, 200.0, 100.0]
+    live = LatencyAnomalyDetector(config=cfg)
+    feed(live, seq)
+    assert live._states[("ep1", "t")].pending_drift, "fixture must reach the deferral"
+
+    restored = LatencyAnomalyDetector(config=cfg)
+    restored.load_state(live.dump_state())
+    assert restored._states[("ep1", "t")].pending_drift, (
+        "a deferred baseline shift must survive snapshot/restore"
+    )
+
+    # The deferred risk must actually be delivered on the first quiet step.
+    live2 = LatencyAnomalyDetector(config=cfg)
+    feed(live2, seq)
+    restored2 = LatencyAnomalyDetector(config=cfg)
+    restored2.load_state(live2.dump_state())
+    delivered: dict[str, int] = {"live": 0, "restored": 0}
+    for i in range(6):
+        e = _event(f"q{i}", float(len(seq) + i), "s", latency_ms=70.0)
+        for det, key in ((live2, "live"), (restored2, "restored")):
+            r = det.observe(e)
+            if r is not None and "baseline shifted" in r.detail:
+                delivered[key] += 1
+    assert delivered["live"] == 1, "the live detector must deliver the shift"
+    assert delivered["restored"] == 1, (
+        f"the restored detector must deliver it too, got {delivered['restored']}"
+    )
+
+
+def test_cusum_pending_drift_fields_stay_absent_when_refit_disabled() -> None:
+    """The pending_* keys are written only with refit active, so a default
+    config's snapshot stays byte-identical to a pre-#92 one."""
+    det = LatencyAnomalyDetector(config=Config())
+    det.observe(_event("s0", 0.0, "s", latency_ms=10.0))
+    raw = det.dump_state()["states"][0][1]
+    assert not any(k.startswith("pending") for k in raw)

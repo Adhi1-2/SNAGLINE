@@ -337,6 +337,13 @@ class LatencyAnomalyDetector:
                     "learner_n": s.learner_n,
                     "learner_mean": s.learner_mean,
                     "learner_m2": s._learner_m2,
+                    # A shift held because a CUSUM alarm owned the risk slot
+                    # (see _advance_refit): without these the deferral is
+                    # silently dropped across a restart, and a baseline shift
+                    # the live detector would have reported never surfaces.
+                    "pending_drift": s.pending_drift,
+                    "pending_old_mu": s.pending_old_mu,
+                    "pending_shift": s.pending_shift,
                 }
                 if s.refit_every > 0
                 else {}
@@ -360,6 +367,9 @@ class LatencyAnomalyDetector:
         s.learner_n = int(raw.get("learner_n", 0) or 0)
         s.learner_mean = float(raw.get("learner_mean", 0.0))
         s._learner_m2 = float(raw.get("learner_m2", 0.0))
+        s.pending_drift = bool(raw.get("pending_drift", False))
+        s.pending_old_mu = float(raw.get("pending_old_mu", 0.0))
+        s.pending_shift = float(raw.get("pending_shift", 0.0))
 
     def dump_state(self) -> dict[str, Any]:
         # Keys are (episode_id, tool_name) tuples; JSON dict keys must be
