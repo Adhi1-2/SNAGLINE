@@ -205,8 +205,11 @@ the healthy profile instead of using worst-case hand-tuned constants:
   max(pooled rate, p99 of per-tool rates); tools with fewer than 20 samples
   are excluded from the percentile.
 * The latency/CUSUM detector starts frozen at each tool's healthy mean and
-  floored spread when the profile holds at least `cusum_min_samples` samples
-  for it: episodes shorter than the old warm-up are monitorable from their
+  floored spread when the profile holds at least `cusum_min_samples`
+  **timed** samples for it (`ToolBaseline.latency_count`, not `count` — a
+  profile from a stream whose adapter reports no `latency_ms` has nothing to
+  seed a latency baseline from, and that tool falls back to warm-up):
+  episodes shorter than the old warm-up are monitorable from their
   first step.
 
 Safety rails: derived counts clamp into `[2, hand-tuned default]` so auto can

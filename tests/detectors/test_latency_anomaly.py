@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from snagline.baseline import BaselineProfile, ToolBaseline
 from snagline.detectors.latency_anomaly import LatencyAnomalyDetector
 from snagline.events import StepEvent, make_signature
 
@@ -110,3 +111,111 @@ def test_sustained_shift_keeps_alarming():
     assert any(alarmed), "sustained shift should keep alerting"
     # it should not drop back to silent mid-shift
     assert alarmed[-1], "alert stopped during a still-elevated shift"
+
+
+def _profile(timed: int, untimed: int = 0, mean: float = 100.0) -> BaselineProfile:
+    """A profile for the ``search`` tool with ``timed`` samples at ``mean`` ms.
+
+    ``untimed`` steps raise ``count`` without raising ``latency_count`` -- the
+    shape of a trajectory whose adapter reports no ``latency_ms``, which the
+    calibration contract explicitly supports (issue #101).
+    """
+    p = BaselineProfile()
+    tb = ToolBaseline("search")
+    for _ in range(timed):
+        tb.add(mean, error=False)
+    for _ in range(untimed):
+        tb.add(None, error=False)
+    p.tools["search"] = tb
+    return p
+
+
+def test_latencyless_baseline_does_not_page_on_first_step():
+    # Issue #348: seeding gated on ``count`` admitted a profile fitted from a
+    # timing-less stream (count=100, latency_count=0, mean 0, std 0). ``seed()``
+    # floors sigma0 to 1.0, so the first live call was scored as an N-sigma
+    # deviation from mean 0 and paged critical on step 0 of every episode.
+    d = LatencyAnomalyDetector(baseline=_profile(timed=0, untimed=100), min_samples=5)
+    r = d.observe(_event(0, 120.0))
+    assert r is None, f"timing-less baseline must not alarm on step 0, got {r}"
+    # The tool is not silently inert either: it falls back to the ordinary
+    # learn-then-freeze path and still detects a real anomaly afterwards.
+    for i in range(1, 20):
+        d.observe(_event(i, 100.0))
+    assert d.observe(_event(20, 400.0)) is not None, "fallback warm-up must work"
+
+
+def test_latencyless_baseline_via_config_layer_is_inert():
+    # The same profile reaches the detector through the documented calibration
+    # path (calibration="auto" resolves the profile from a store), not just via
+    # the direct constructor.
+    d = LatencyAnomalyDetector(baseline=_profile(timed=0, untimed=100), min_samples=5)
+    assert d.observe(_event(0, 120.0)) is None
+
+
+def test_timed_baseline_still_seeds_and_skips_warmup():
+    # The fix must not over-correct: a profile with real timing still seeds and
+    # still skips warm-up, so a first step far off the calibrated mean alarms
+    # immediately (the point of a calibrated start, issue #101).
+    d = LatencyAnomalyDetector(baseline=_profile(timed=100, mean=100.0), min_samples=5)
+    r = d.observe(_event(0, 5000.0))
+    assert r is not None and r.trigger == "latency_anomaly"
+    assert "mean 100ms" in r.detail, f"detail should name the calibrated mean: {r}"
+
+
+def test_baseline_count_below_min_samples_falls_back_to_warmup():
+    # ``min_samples`` gates sufficiency of the *timing* evidence: a profile with
+    # fewer timed samples than that has not measured latency well enough to
+    # freeze onto, so the detector learns from the live stream instead.
+    d = LatencyAnomalyDetector(baseline=_profile(timed=3, untimed=97), min_samples=5)
+    # Step 0 must be in warm-up (learning, not alarmable), whatever the latency.
+    assert d.observe(_event(0, 9999.0)) is None
+
+
+def test_mixed_profile_seeds_only_timed_tools():
+    # A timing-less tool in the same profile as a timed one: the timed tool
+    # still gets its calibrated start, the timing-less one still falls back.
+    p = BaselineProfile()
+    tb = ToolBaseline("search")
+    for _ in range(100):
+        tb.add(100.0, error=False)
+    p.tools["search"] = tb
+    untimed = ToolBaseline("plan")
+    for _ in range(100):
+        untimed.add(None, error=False)
+    p.tools["plan"] = untimed
+    d = LatencyAnomalyDetector(baseline=p, min_samples=5)
+
+    def ev(step: int, tool: str, latency: float) -> StepEvent:
+        return StepEvent(
+            step_id=str(step),
+            episode_id="ep",
+            timestamp=float(step),
+            action_type="tool_call",
+            action_signature=make_signature("tool_call", tool, str(step)),
+            tool_name=tool,
+            latency_ms=latency,
+        )
+
+    assert d.observe(ev(0, "plan", 120.0)) is None, "timing-less tool must not alarm"
+    seeded = d.observe(ev(1, "search", 5000.0))
+    assert seeded is not None and "mean 100ms" in seeded.detail
+
+
+def test_legacy_profile_without_latency_count_still_seeds():
+    # Profiles written before ``latency_count`` existed carried only count and
+    # the moments; ``from_dict`` defaults latency_count to count so they keep
+    # seeding rather than being demoted to warm-up by the stricter gate.
+    legacy = {
+        "tool_name": "search",
+        "count": 100,
+        "mean_latency": 100.0,
+        "std_latency": 5.0,
+    }
+    tb = ToolBaseline.from_dict(legacy)
+    assert tb.latency_count == 100
+    d = LatencyAnomalyDetector(
+        baseline=BaselineProfile(tools={"search": tb}), min_samples=5
+    )
+    r = d.observe(_event(0, 5000.0))
+    assert r is not None and "mean 100ms" in r.detail

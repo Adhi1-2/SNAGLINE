@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet.
 
 ### Fixed
+- `LatencyAnomalyDetector`'s calibrated start seeds its CUSUM baseline only
+  when the profile actually measured latency for that tool. The sufficiency
+  gate was on `ToolBaseline.count` (every call) while the seeded values come
+  from `latency_count` (timed calls only), so a profile fitted from a stream
+  whose adapter reports no `latency_ms` — `count=100, latency_count=0,
+  mean 0, std 0`, a shape the calibration contract explicitly supports — was
+  accepted, and `seed()`'s sigma floor turned the first live call into an
+  N-sigma deviation from mean 0, paging **critical on step 0 of every
+  episode**. The gate now reads `latency_count`; such profiles fall back to
+  the ordinary learn-then-freeze path for that tool instead of false-alarming
+  (#348). Profiles predating the `latency_count` field still seed, since
+  `from_dict` defaults it to `count`.
 - `episode_token_budget` and `token_budget_warn_fraction` are now range-checked
   at construction and after env/file layering, like the horizon and stagnation
   knobs. A zero or negative budget used to fire a score-1.0 `budget_breach` on

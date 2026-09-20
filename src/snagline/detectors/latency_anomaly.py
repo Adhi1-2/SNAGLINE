@@ -215,7 +215,21 @@ class LatencyAnomalyDetector:
             seeded: ToolBaseline | None = None
             if self._baseline is not None:
                 candidate = self._baseline.tools.get(key[1])
-                if candidate is not None and candidate.count >= self.min_samples:
+                # Gate on latency_count, not count: the moments being seeded are
+                # computed from timed steps only, so ``count`` admits a profile
+                # fitted from a stream whose adapter reported no latency_ms --
+                # count=100, latency_count=0, mean 0, std 0 -- and ``seed()``
+                # then floors sigma0 to 1.0 and scores the first live call as an
+                # N-sigma deviation, paging critical on step 0 of every episode
+                # (issue #348). Timing-less streams are a supported calibration
+                # input (issue #101); their profiles simply have nothing to say
+                # about latency, and the tool falls back to learn-then-freeze.
+                # ``ToolBaseline.from_dict`` defaults latency_count to count for
+                # profiles predating the field, so legacy profiles still seed.
+                if (
+                    candidate is not None
+                    and candidate.latency_count >= self.min_samples
+                ):
                     seeded = candidate
             if seeded is not None:
                 state.seed(seeded.mean_latency, seeded.std_latency)
