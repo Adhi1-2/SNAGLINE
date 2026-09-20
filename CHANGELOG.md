@@ -31,6 +31,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step while no `goal_drift` risk ever fired. A negative `cusum_h` or
   `cusum_k` inverted the CUSUM and stormed a false positive on nearly every
   step. Both are now startup configuration errors naming the knob (#370).
+- A `SNAGLINE_*` key naming an object-typed field now logs a warning when
+  ignored, instead of vanishing silently. `Config.from_env_overrides` warned
+  only for values that failed coercion; a key naming `goal_drift_baseline` or
+  `calibration_baseline` (both `BaselineProfile | None`, deliberately out of
+  reach of string coercion) was skipped with no log line, so the module's own
+  promise that ignored keys are "ignored (logged at warning)" did not hold.
+  An operator setting either env form got no feedback that it could never
+  apply, and found out only by noticing the detector staying inert. The
+  warning now also points at the right alternative: `SNAGLINE_CALIBRATION_
+  BASELINE_PATH` for the one field with a path form, or passing the object in
+  code for `goal_drift_baseline`, which has none (#355).
 
 ## [0.1.0] - 2026-08-27
 

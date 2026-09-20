@@ -598,7 +598,8 @@ class Config:
         it (issue #66).
 
         Reads ``<prefix><FIELD>`` (case-insensitive). Unknown prefixes, unknown
-        keys, and values that fail to coerce are ignored (logged at warning)
+        keys, values that fail to coerce, and keys naming object-typed fields
+        that cannot be built from a string are ignored (logged at warning)
         rather than fatal, so a host can pass through unrelated environment
         without breaking startup.
         """
@@ -617,6 +618,31 @@ class Config:
                     overrides[name] = _coerce(hint, value)
                 except ValueError:
                     logger.warning("snagline: ignoring bad env %s=%r", key, value)
+            else:
+                # A present key naming a field that cannot be built from a
+                # string. _coercible_hint keeps object-typed fields
+                # (goal_drift_baseline / calibration_baseline, both
+                # ``BaselineProfile | None``) out of reach of coercion on
+                # purpose -- a profile is a fitted artifact, not a path --
+                # but nothing else told the operator this, so the env form of
+                # either field was a silent no-op, discoverable only by
+                # noticing the detector staying inert. The module docstring
+                # promises that ignored keys are "ignored (logged at
+                # warning)", and a key that can never apply is as worth
+                # logging as one whose value is malformed (issue #355).
+                path_field = f"{name}_path"
+                if path_field in hints:
+                    advise = f" use {prefix}{path_field.upper()} for a file path"
+                else:
+                    advise = " pass the object in code"
+                logger.warning(
+                    "snagline: ignoring env %s=%r: %s is an object-typed field "
+                    "and cannot be set from the environment;%s",
+                    key,
+                    value,
+                    name,
+                    advise,
+                )
         return overrides
 
     @classmethod
