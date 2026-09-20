@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
+import types
+
+import pytest
 
 from snagline.auto.langchain import instrument_langchain, wrap_client
 
@@ -55,14 +59,33 @@ def test_wrap_client_records_error_and_propagates():
     assert mon.events[0].error is True
 
 
+def _force_absent(monkeypatch):
+    """Make both langchain packages unimportable for the duration of a test.
+
+    ``langchain-core`` is an optional dependency and CI installs it, so
+    absence cannot be assumed: ``delitem`` alone just re-imports it from disk,
+    and a package nothing imported yet is not in ``sys.modules`` at all. A
+    ``None`` sentinel under every relevant name makes the import fail outright.
+    """
+    names = {
+        n
+        for n in sys.modules
+        if n == "langchain_core"
+        or n.startswith("langchain_core.")
+        or n == "langchain"
+        or n.startswith("langchain.")
+    }
+    # The top-level names are sentinelled unconditionally: an installed-but-
+    # never-imported package has no sys.modules entry to catch in the loop.
+    names.update(("langchain_core", "langchain"))
+    for name in names:
+        monkeypatch.setitem(sys.modules, name, None)
+
+
 def test_instrument_langchain_without_sdk_is_safe_noop(monkeypatch, caplog):
-    # instrument_langchain imports langchain lazily inside the function, so
-    # hide both modules to force the absent branch regardless of what is
-    # installed in this venv (issue #295).
-    monkeypatch.setitem(sys.modules, "langchain", None)
-    monkeypatch.setitem(sys.modules, "langchain.chains.base", None)
-    monkeypatch.setitem(sys.modules, "langchain_core", None)
-    monkeypatch.setitem(sys.modules, "langchain_core.language_models", None)
+    """Issue #339: this test used to pass in CI *because* the broken
+    ``langchain.chains`` import made an installed SDK look absent."""
+    _force_absent(monkeypatch)
     mon = _SpyMonitor()
     with caplog.at_level("WARNING"):
         assert instrument_langchain(mon) is False
@@ -72,3 +95,152 @@ def test_instrument_langchain_without_sdk_is_safe_noop(monkeypatch, caplog):
 def test_instrument_langchain_with_explicit_client():
     mon = _SpyMonitor()
     assert instrument_langchain(mon, client=_FakeLLM()) is True
+
+
+# --- global mode (issue #339) -------------------------------------------------
+# ``langchain.chains`` was removed in the langchain 1.0 restructure, so the old
+# import aborted the whole entrypoint with a wrong "LangChain not installed"
+# message while langchain-core was installed. These reproduce both SDK shapes
+# with local fakes: the 1.x base classes under ``langchain_core``, and the 0.x
+# ``langchain.chains.base.Chain`` fallback.
+
+
+def _delegating_chat_base():
+    """A chat-model base whose ``invoke`` delegates to ``generate`` -- the
+    shape that makes patching all four entrypoints double-count (one event for
+    the user's ``invoke``, one for the internal ``generate``)."""
+
+    class BaseChatModel:
+        def invoke(self, input, **kw):
+            return self.generate(input)
+
+        async def ainvoke(self, input, **kw):
+            return await self.agenerate(input)
+
+        def generate(self, messages):
+            return "chat-ok"
+
+        async def agenerate(self, messages):
+            return "chat-async-ok"
+
+    class BaseLanguageModel:
+        def invoke(self, input, **kw):
+            return "lm-ok"
+
+        async def ainvoke(self, input, **kw):
+            return "lm-async-ok"
+
+    return BaseChatModel, BaseLanguageModel
+
+
+@pytest.fixture
+def fake_langchain_core(monkeypatch):
+    """Install a fake ``langchain_core`` with the 1.x class layout, and make
+    sure the 0.x top-level ``langchain`` package is not importable."""
+
+    chat_cls, lm_cls = _delegating_chat_base()
+    lm_mod = types.ModuleType("langchain_core.language_models")
+    lm_mod.BaseLanguageModel = lm_cls  # type: ignore[attr-defined]
+    chat_mod = types.ModuleType("langchain_core.language_models.chat_models")
+    chat_mod.BaseChatModel = chat_cls  # type: ignore[attr-defined]
+    _force_absent(monkeypatch)
+    monkeypatch.setitem(
+        sys.modules, "langchain_core", types.ModuleType("langchain_core")
+    )
+    monkeypatch.setitem(sys.modules, "langchain_core.language_models", lm_mod)
+    monkeypatch.setitem(
+        sys.modules, "langchain_core.language_models.chat_models", chat_mod
+    )
+    return chat_mod, lm_mod
+
+
+@pytest.fixture
+def fake_langchain_0x(monkeypatch, fake_langchain_core):
+    """Add the pre-1.0 ``langchain.chains.base.Chain`` on top of the fake core."""
+
+    class Chain:
+        def invoke(self, input, **kw):
+            return "chain-ok"
+
+    chains_mod = types.ModuleType("langchain.chains.base")
+    chains_mod.Chain = Chain  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "langchain", types.ModuleType("langchain"))
+    monkeypatch.setitem(
+        sys.modules, "langchain.chains", types.ModuleType("langchain.chains")
+    )
+    monkeypatch.setitem(sys.modules, "langchain.chains.base", chains_mod)
+    return chains_mod
+
+
+def test_global_mode_patches_langchain_core_bases(fake_langchain_core):
+    mon = _SpyMonitor()
+    assert instrument_langchain(mon) is True, "an installed SDK must not report absent"
+    chat, lm = fake_langchain_core
+
+    # Sync call through a chat-model instance emits exactly once, even though
+    # BaseChatModel.invoke delegates to self.generate.
+    assert chat.BaseChatModel().invoke("hi") == "chat-ok"
+    assert len(mon.events) == 1
+    assert mon.events[0].tool_name == "langchain.invoke"
+    assert mon.events[0].error is False
+
+    # The other base class is patched too, not just the chat one.
+    assert lm.BaseLanguageModel().invoke("hi") == "lm-ok"
+    assert len(mon.events) == 2
+
+    # Async leg.
+    assert asyncio.run(lm.BaseLanguageModel().ainvoke("hi")) == "lm-async-ok"
+    assert len(mon.events) == 3
+
+
+def test_global_mode_does_not_wrap_the_delegation_target(fake_langchain_core):
+    """``BaseChatModel.invoke`` calls ``self.generate``; patching ``generate``
+    too would emit a second event for the same user-facing call. Global mode
+    wraps only the outermost entrypoints."""
+    chat, _ = fake_langchain_core
+    mon = _SpyMonitor()
+    assert instrument_langchain(mon) is True
+    assert chat.BaseChatModel().generate("hi") == "chat-ok"
+    assert mon.events == [], "generate is an implementation detail, not a call"
+
+
+def test_global_mode_async_does_not_double_count(fake_langchain_core):
+    chat, _ = fake_langchain_core
+    mon = _SpyMonitor()
+    assert instrument_langchain(mon) is True
+    assert asyncio.run(chat.BaseChatModel().ainvoke("hi")) == "chat-async-ok"
+    assert len(mon.events) == 1
+
+
+def test_global_mode_falls_back_to_langchain_chains(
+    fake_langchain_core, fake_langchain_0x
+):
+    """langchain < 1.0: ``Chain`` still exists at ``langchain.chains.base`` and
+    is patched alongside the core bases."""
+    chains = fake_langchain_0x
+    mon = _SpyMonitor()
+    assert instrument_langchain(mon) is True
+    assert chains.Chain().invoke("hi") == "chain-ok"
+    assert len(mon.events) == 1
+
+
+def test_global_mode_distinguishes_absent_from_reshaped(monkeypatch, caplog):
+    """A genuinely missing dependency and a present-but-reshaped one must not
+    share one message: "not installed" for the former, a monitoring failure for
+    the latter (issue #339)."""
+    _force_absent(monkeypatch)
+    with caplog.at_level("WARNING", logger="snagline"):
+        assert instrument_langchain(_SpyMonitor()) is False
+    assert any("langchain-core not installed" in r.message for r in caplog.records)
+
+    # Present, but the class layout moved: patching nothing is a failure, not
+    # silence -- and the message must not claim the SDK is absent.
+    caplog.clear()
+    core_mod = types.ModuleType("langchain_core")
+    lm_mod = types.ModuleType("langchain_core.language_models")  # no classes
+    monkeypatch.setitem(sys.modules, "langchain_core", core_mod)
+    monkeypatch.setitem(sys.modules, "langchain_core.language_models", lm_mod)
+    with caplog.at_level("WARNING", logger="snagline"):
+        assert instrument_langchain(_SpyMonitor()) is False
+    assert any("NOT monitored" in r.message for r in caplog.records)
+    assert not any("not installed" in r.message for r in caplog.records)
