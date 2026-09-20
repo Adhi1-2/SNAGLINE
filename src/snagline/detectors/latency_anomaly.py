@@ -224,9 +224,11 @@ class LatencyAnomalyDetector:
                 # whose adapter reported no timings legitimately has
                 # count=100, latency_count=0, mean_latency=0.0 (issue #101
                 # supports exactly that stream), and seeding from it freezes
-                # onto a zero baseline -- the first real call scores as an
-                # infinite-sigma deviation and pages critical on step 0 of
-                # every episode (issue #348).
+                # onto a zero baseline. _floored_sigma keeps the reference
+                # spread finite -- the absolute floor, 1 ms by default -- so a
+                # real call measures as a large but finite multiple of it and
+                # crosses the CUSUM threshold on the first step, paging
+                # critical on step 0 of every episode (issue #348).
                 if (
                     candidate is not None
                     and candidate.latency_count >= self.min_samples

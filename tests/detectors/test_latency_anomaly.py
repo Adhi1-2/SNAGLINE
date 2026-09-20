@@ -129,9 +129,10 @@ def _latencyless_profile(tool: str = "search", n: int = 100) -> BaselineProfile:
 
 
 def test_latencyless_profile_does_not_alarm_on_first_step():
-    # Seeding from ``count`` froze onto mean_latency 0.0, so the first real
-    # call scored as an infinite-sigma deviation and paged critical on step 0
-    # of every episode.
+    # Seeding from ``count`` froze onto mean_latency 0.0. The reference spread
+    # stays finite (sigma floors -- 1 ms absolute), but the first real call
+    # then measures as a large multiple of that floor and crosses the CUSUM
+    # threshold on the first step, paging critical on step 0 of every episode.
     d = LatencyAnomalyDetector(baseline=_latencyless_profile(), min_samples=5)
     assert d.observe(_event(0, 120.0)) is None
 
