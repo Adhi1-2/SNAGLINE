@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step while no `goal_drift` risk ever fired. A negative `cusum_h` or
   `cusum_k` inverted the CUSUM and stormed a false positive on nearly every
   step. Both are now startup configuration errors naming the knob (#370).
+- `loop_repeat_threshold`, `loop_stall_steps`, `cascade_error_threshold` and
+  `cascade_consecutive_threshold` are now range-checked at construction and
+  after env/file layering. Each divides its detector's alert score, so `0`
+  raised `ZeroDivisionError` on the first candidate step -- swallowed by the
+  fail-open wrapper and re-logged once per step while no `loop` or
+  `error_cascade` risk ever fired -- and a negative value passed the
+  `count < threshold` guard trivially and emitted a `FailureRisk` with a
+  negative score. All four are now startup configuration errors naming the
+  knob (#372).
 
 ## [0.1.0] - 2026-08-27
 

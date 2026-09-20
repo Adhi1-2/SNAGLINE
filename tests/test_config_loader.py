@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -448,3 +449,41 @@ def test_semantic_drift_cusum_knobs_out_of_range_abort_startup():
         ).semantic_drift_cusum_k
         == 0.0
     )
+
+
+def test_loop_and_cascade_thresholds_out_of_range_abort_startup():
+    """Issue #372: the four count thresholds divide their detector's alert
+    score, so 0 raises ZeroDivisionError on the first candidate step -- which
+    Monitor.ingest's fail-open wrapper swallows and re-logs once per step while
+    no risk ever fires -- and a negative value passes the ``count <
+    threshold`` guard trivially and emits a FailureRisk with a negative score.
+    Same contract as the window knobs (#333) and the CUSUM bars (#331):
+    invalid monitoring config aborts startup loudly at construction/resolve
+    time with a clear error naming the knob."""
+    for name in (
+        "loop_repeat_threshold",
+        "loop_stall_steps",
+        "cascade_error_threshold",
+        "cascade_consecutive_threshold",
+    ):
+        for value in (0, -1, -25):
+            overrides: dict[str, Any] = {name: value}
+            with pytest.raises(ValueError, match=name):
+                Config(**overrides)
+
+    # Env layering bypasses __post_init__ via setattr, so resolve() must
+    # re-check too -- a typo'd SNAGLINE_LOOP_REPEAT_THRESHOLD=0 coerces
+    # cleanly from a string and would otherwise start up green.
+    with pytest.raises(ValueError, match="loop_repeat_threshold"):
+        Config.resolve(environ={"SNAGLINE_LOOP_REPEAT_THRESHOLD": "0"})
+    with pytest.raises(ValueError, match="cascade_consecutive_threshold"):
+        Config.resolve(environ={"SNAGLINE_CASCADE_CONSECUTIVE_THRESHOLD": "-1"})
+
+    # 1 is legitimate ("alert on the first occurrence") and the shipped
+    # defaults are valid, so neither trips the checks at either layer.
+    assert Config(loop_repeat_threshold=1).loop_repeat_threshold == 1
+    stock = Config.resolve(environ={"SNAGLINE_LOOP_STALL_ENABLED": "true"})
+    assert stock.loop_repeat_threshold == 3
+    assert stock.cascade_error_threshold == 3
+    assert stock.cascade_consecutive_threshold == 3
+    assert stock.loop_stall_steps == 25

@@ -196,6 +196,39 @@ def _validated_max_live_episodes(cfg: Config) -> None:
         )
 
 
+def _validated_loop_and_cascade(cfg: Config) -> None:
+    """Validate the loop and error-cascade threshold knobs (issue #372); raise
+    when invalid.
+
+    These four are the threshold counterparts of the window knobs validated by
+    #333, and they are divisors: the score lines in ``loop.py`` and
+    ``error_cascade.py`` read ``count / self.repeat_threshold`` and friends, so
+    a zero raises ``ZeroDivisionError`` on the first candidate step. The
+    detector's ``observe`` is wrapped fail-open by ``Monitor.ingest``, so that
+    exception is swallowed and re-logged once per step while no risk ever
+    fires -- the detector is dead for the run.
+
+    The ``min(1.0, ...)`` clamp bounds only the top of the score, so a
+    negative threshold does not clamp away: it satisfies the ``count <
+    threshold`` guard trivially and emits a fabricated ``FailureRisk`` carrying
+    a *negative* score (measured: -0.5 and -1.0), which reaches every sink.
+    """
+    for name in (
+        "loop_repeat_threshold",
+        "loop_stall_steps",
+        "cascade_error_threshold",
+        "cascade_consecutive_threshold",
+    ):
+        value = getattr(cfg, name)
+        if value < 1:
+            raise ValueError(
+                f"{name} must be >= 1; it divides the alert score, so 0 "
+                f"deadens the detector with a swallowed ZeroDivisionError and "
+                f"a negative value emits a risk with a negative score; "
+                f"got {value!r}"
+            )
+
+
 def _validated_stagnation(cfg: Config) -> None:
     """Validate the stagnation-detector knobs (issue #132); raise when invalid.
 
@@ -551,6 +584,10 @@ class Config:
         # Issue #370: same policy for the semantic goal-drift CUSUM knobs.
         # Their defaults are valid, so only a configured value trips these.
         _validated_semantic_drift(self)
+        # Issue #372: same policy for the loop and cascade threshold knobs,
+        # which divide the alert scores. Defaults are valid, so only a
+        # configured value can trip these checks.
+        _validated_loop_and_cascade(self)
 
     # --- 12-factor configuration (project.md §5.4, ATTACH_ANY_SYSTEM P0) -----
     @classmethod
@@ -667,4 +704,9 @@ class Config:
         # clear error, not deaden the detector with a swallowed
         # ZeroDivisionError once steps start flowing.
         _validated_semantic_drift(cfg)
+        # Same re-validation for the loop and cascade threshold knobs (issue
+        # #372): SNAGLINE_LOOP_REPEAT_THRESHOLD=0 coerces cleanly from a
+        # string, so without this it starts up green and deadens the detector
+        # once steps are flowing.
+        _validated_loop_and_cascade(cfg)
         return cfg
