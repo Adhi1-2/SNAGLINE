@@ -150,6 +150,12 @@ class _SyncStreamWrapper:
         return self
 
     def __exit__(self, *exc_info: object) -> Literal[False]:
+        # An exception escaping the body is the observed call's visible
+        # outcome; close() alone would record it as a clean success, and
+        # failures surfaced through proxied stream methods (``s.text()``)
+        # are invisible to __next__. See openai.py for the full rationale.
+        if exc_info[1] is not None:
+            self._emit(error=True, error_type=type(exc_info[1]).__name__)
         self.close()
         return False
 
@@ -232,6 +238,9 @@ class _AsyncStreamWrapper:
         return self
 
     async def __aexit__(self, *exc_info: object) -> Literal[False]:
+        # Same treatment as the sync twin (see openai.py).
+        if exc_info[1] is not None:
+            self._emit(error=True, error_type=type(exc_info[1]).__name__)
         await self.aclose()
         return False
 

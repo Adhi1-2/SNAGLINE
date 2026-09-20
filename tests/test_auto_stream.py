@@ -174,9 +174,11 @@ def test_openai_stream_context_manager_emits_when_block_skips_iteration() -> Non
 
 
 def test_openai_stream_context_manager_propagates_block_errors() -> None:
-    # An exception raised by the caller's block is not a stream failure: the
-    # LLM call completed, so the event stays error=False and the block error
-    # still propagates (returning False from __exit__).
+    # An exception escaping the ``with`` body is the observed call's visible
+    # outcome: the stream never finished, so __exit__ must not let close()
+    # record a clean success. The block error still propagates (__exit__
+    # returns False), and the emit is a no-op when the stream already
+    # emitted at exhaustion.
     mon = _SpyMonitor()
     inner = _SyncStream(["a"])
     client = wrap_openai(mon, _openai_client(inner))
@@ -185,7 +187,8 @@ def test_openai_stream_context_manager_propagates_block_errors() -> None:
             raise RuntimeError("caller boom")
     assert inner.closed
     assert len(mon.events) == 1
-    assert mon.events[0].error is False
+    assert mon.events[0].error is True
+    assert mon.events[0].error_type == "RuntimeError"
 
 
 def test_anthropic_stream_context_manager_form() -> None:
@@ -209,6 +212,8 @@ def test_anthropic_stream_context_manager_emits_on_block_error() -> None:
             raise RuntimeError("caller boom")
     assert inner.closed
     assert len(mon.events) == 1
+    assert mon.events[0].error is True
+    assert mon.events[0].error_type == "RuntimeError"
 
 
 def test_async_stream_defers_to_exhaustion() -> None:
@@ -317,3 +322,45 @@ def test_async_stream_context_manager_emits_when_block_skips_iteration(module) -
         assert mon.events[0].error is False
 
     asyncio.run(go())
+
+
+@pytest.mark.parametrize("module", [oai, anth], ids=["openai", "anthropic"])
+def test_async_stream_context_manager_records_block_error(module) -> None:
+    """The async twin of the sync block-error case: an exception escaping the
+    body must be recorded as the call's failure, not a clean success."""
+
+    async def go() -> None:
+        mon = _SpyMonitor()
+        inner = _AsyncStream(["a", "b"])
+
+        async def _create(**kw: Any) -> Any:
+            return inner
+
+        wrapped = module._wrap_one(mon, _create, "create")
+        out = await wrapped(model="m", messages=[], stream=True)
+        with pytest.raises(RuntimeError, match="caller boom"):
+            async with out as s:
+                await anext(s)
+                raise RuntimeError("caller boom")
+        assert inner.closed
+        assert len(mon.events) == 1
+        assert mon.events[0].error is True
+        assert mon.events[0].error_type == "RuntimeError"
+
+    asyncio.run(go())
+
+
+def test_openai_stream_context_manager_error_after_exhaustion_stays_success() -> None:
+    # When the stream already emitted at exhaustion the error emit is a
+    # no-op: the call genuinely completed, so a caller exception raised by
+    # post-processing after the loop must not flip it to a failure.
+    mon = _SpyMonitor()
+    inner = _SyncStream(["a"])
+    client = wrap_openai(mon, _openai_client(inner))
+    with pytest.raises(RuntimeError, match="after"):
+        with client.chat.completions.create(model="m", messages=[], stream=True) as out:
+            assert list(out) == ["a"]
+            raise RuntimeError("after exhaustion")
+    assert inner.closed
+    assert len(mon.events) == 1
+    assert mon.events[0].error is False
