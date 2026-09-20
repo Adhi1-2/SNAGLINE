@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,9 +82,28 @@ def make_signature(action_type: str, tool_name: str | None, *stable_parts: str) 
     with ``["a||b", "c"]``), and the full 64-character SHA-256 digest is
     returned -- truncating to 16 hex chars invited collisions between
     distinct actions (issue #15).
+
+    The function is memoized (issue #313): real traffic repeats a small
+    palette of signatures heavily -- the same few tools over a long episode --
+    so the JSON+SHA-256 work is skipped on repeats. The cache is keyed on the
+    argument tuple and bounded, so the output is unchanged (a pure function of
+    its inputs) and memory cannot grow without limit on a hostile stream. A
+    cache miss still pays the full canonical-JSON cost, so a cold or
+    high-cardinality stream sees the original ~1.2 us/step and no
+    compatibility break: the wire format is untouched.
     """
+    return _make_signature(action_type, tool_name, *stable_parts)
+
+
+@lru_cache(maxsize=1024)
+def _make_signature(action_type: str, tool_name: str | None, *stable_parts: str) -> str:
     import json
 
     parts = [action_type, tool_name or "", *stable_parts]
     raw = json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _clear_signature_cache() -> None:
+    """Drop every memoized signature (test hook; not part of the public API)."""
+    _make_signature.cache_clear()
