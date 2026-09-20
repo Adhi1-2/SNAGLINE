@@ -123,6 +123,22 @@ def _delegating_chat_base():
         async def agenerate(self, messages):
             return "chat-async-ok"
 
+    class BaseLLM:
+        # A *sibling* of BaseChatModel, not a subclass: it re-declares the
+        # entrypoints and routes them elsewhere than the shared parent's, so
+        # patching only BaseLanguageModel never intercepts it.
+        def invoke(self, input, **kw):
+            return self.generate_prompt(input)
+
+        async def ainvoke(self, input, **kw):
+            return await self.agenerate_prompt(input)
+
+        def generate_prompt(self, prompts):
+            return "llm-ok"
+
+        async def agenerate_prompt(self, prompts):
+            return "llm-async-ok"
+
     class BaseLanguageModel:
         def invoke(self, input, **kw):
             return "lm-ok"
@@ -130,7 +146,7 @@ def _delegating_chat_base():
         async def ainvoke(self, input, **kw):
             return "lm-async-ok"
 
-    return BaseChatModel, BaseLanguageModel
+    return BaseChatModel, BaseLLM, BaseLanguageModel
 
 
 @pytest.fixture
@@ -138,11 +154,13 @@ def fake_langchain_core(monkeypatch):
     """Install a fake ``langchain_core`` with the 1.x class layout, and make
     sure the 0.x top-level ``langchain`` package is not importable."""
 
-    chat_cls, lm_cls = _delegating_chat_base()
+    chat_cls, llm_cls, lm_cls = _delegating_chat_base()
     lm_mod = types.ModuleType("langchain_core.language_models")
     lm_mod.BaseLanguageModel = lm_cls  # type: ignore[attr-defined]
     chat_mod = types.ModuleType("langchain_core.language_models.chat_models")
     chat_mod.BaseChatModel = chat_cls  # type: ignore[attr-defined]
+    llm_mod = types.ModuleType("langchain_core.language_models.llms")
+    llm_mod.BaseLLM = llm_cls  # type: ignore[attr-defined]
     _force_absent(monkeypatch)
     monkeypatch.setitem(
         sys.modules, "langchain_core", types.ModuleType("langchain_core")
@@ -151,7 +169,8 @@ def fake_langchain_core(monkeypatch):
     monkeypatch.setitem(
         sys.modules, "langchain_core.language_models.chat_models", chat_mod
     )
-    return chat_mod, lm_mod
+    monkeypatch.setitem(sys.modules, "langchain_core.language_models.llms", llm_mod)
+    return chat_mod, llm_mod, lm_mod
 
 
 @pytest.fixture
@@ -175,7 +194,7 @@ def fake_langchain_0x(monkeypatch, fake_langchain_core):
 def test_global_mode_patches_langchain_core_bases(fake_langchain_core):
     mon = _SpyMonitor()
     assert instrument_langchain(mon) is True, "an installed SDK must not report absent"
-    chat, lm = fake_langchain_core
+    chat, llm, lm = fake_langchain_core
 
     # Sync call through a chat-model instance emits exactly once, even though
     # BaseChatModel.invoke delegates to self.generate.
@@ -184,32 +203,56 @@ def test_global_mode_patches_langchain_core_bases(fake_langchain_core):
     assert mon.events[0].tool_name == "langchain.invoke"
     assert mon.events[0].error is False
 
-    # The other base class is patched too, not just the chat one.
-    assert lm.BaseLanguageModel().invoke("hi") == "lm-ok"
+    # The completion base is patched too, not just the chat one.
+    assert llm.BaseLLM().invoke("hi") == "llm-ok"
     assert len(mon.events) == 2
+
+    # The shared parent is patched as well.
+    assert lm.BaseLanguageModel().invoke("hi") == "lm-ok"
+    assert len(mon.events) == 3
 
     # Async leg.
     assert asyncio.run(lm.BaseLanguageModel().ainvoke("hi")) == "lm-async-ok"
-    assert len(mon.events) == 3
+    assert len(mon.events) == 4
+
+
+def test_global_mode_patches_the_completion_base(fake_langchain_core):
+    """``BaseLLM`` re-declares ``invoke`` / ``ainvoke`` and is a sibling of
+    ``BaseChatModel``, so patching only ``BaseLanguageModel`` left every
+    completion-model call invisible while instrument_langchain() reported
+    True."""
+    _, llm, _ = fake_langchain_core
+    mon = _SpyMonitor()
+    assert instrument_langchain(mon) is True
+
+    assert llm.BaseLLM().invoke("hi") == "llm-ok"
+    assert len(mon.events) == 1
+    assert mon.events[0].tool_name == "langchain.invoke"
+
+    assert asyncio.run(llm.BaseLLM().ainvoke("hi")) == "llm-async-ok"
+    assert len(mon.events) == 2
 
 
 def test_global_mode_does_not_wrap_the_delegation_target(fake_langchain_core):
-    """``BaseChatModel.invoke`` calls ``self.generate``; patching ``generate``
-    too would emit a second event for the same user-facing call. Global mode
-    wraps only the outermost entrypoints."""
-    chat, _ = fake_langchain_core
+    """``BaseChatModel.invoke`` calls ``self.generate`` and ``BaseLLM.invoke``
+    calls ``self.generate_prompt``; patching those too would emit a second
+    event for the same user-facing call. Global mode wraps only the outermost
+    entrypoints."""
+    chat, llm, _ = fake_langchain_core
     mon = _SpyMonitor()
     assert instrument_langchain(mon) is True
     assert chat.BaseChatModel().generate("hi") == "chat-ok"
-    assert mon.events == [], "generate is an implementation detail, not a call"
+    assert llm.BaseLLM().generate_prompt("hi") == "llm-ok"
+    assert mon.events == [], "generation methods are an implementation detail"
 
 
 def test_global_mode_async_does_not_double_count(fake_langchain_core):
-    chat, _ = fake_langchain_core
+    chat, llm, _ = fake_langchain_core
     mon = _SpyMonitor()
     assert instrument_langchain(mon) is True
     assert asyncio.run(chat.BaseChatModel().ainvoke("hi")) == "chat-async-ok"
-    assert len(mon.events) == 1
+    assert asyncio.run(llm.BaseLLM().ainvoke("hi")) == "llm-async-ok"
+    assert len(mon.events) == 2
 
 
 def test_global_mode_falls_back_to_langchain_chains(

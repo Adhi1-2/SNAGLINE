@@ -6,12 +6,18 @@ LangChain is absent, and handles synchronous and asynchronous methods.
 
 Global mode (issue #339) patches the base classes that the declared
 dependency actually provides. The ``langchain`` extra ships only
-``langchain-core``, so the targets are ``BaseChatModel`` and
-``BaseLanguageModel`` from there; ``langchain.chains.base.Chain`` remains as a
-fallback for langchain < 1.0, where chains were a distinct class. In
-langchain >= 1.0 that module no longer exists, and importing it aborted the
-whole entrypoint with a wrong "LangChain not installed" message while
-langchain-core was perfectly installed.
+``langchain-core``, so the targets are ``BaseChatModel``, ``BaseLLM`` and
+their shared parent ``BaseLanguageModel`` from there;
+``langchain.chains.base.Chain`` remains as a fallback for langchain < 1.0,
+where chains were a distinct class. In langchain >= 1.0 that module no longer
+exists, and importing it aborted the whole entrypoint with a wrong "LangChain
+not installed" message while langchain-core was perfectly installed.
+
+``BaseLLM`` must be a target in its own right: it is a sibling of
+``BaseChatModel``, not a subclass, and it re-declares ``invoke`` / ``ainvoke``
+to route to ``generate_prompt`` / ``agenerate_prompt``. Patching only
+``BaseLanguageModel`` left every raw completion-model call unobserved while
+``instrument_langchain()`` still reported True.
 
 ``Runnable`` itself is deliberately NOT a target. ``invoke`` / ``ainvoke`` are
 defined there, but patching the base would also wrap every non-model runnable
@@ -151,11 +157,14 @@ def _global_targets() -> tuple[list[type], bool]:
 
     The ``langchain`` extra declares only ``langchain-core``, so the primary
     targets come from there. ``invoke`` / ``ainvoke`` are defined on
-    ``Runnable`` and inherited by chains and models; ``BaseChatModel`` however
-    *overrides* both, so patching ``Runnable`` alone would miss every chat
-    model -- attribute lookup finds the subclass's own entrypoint first. Both
-    are patched; an instance resolves to exactly one of them via its MRO, so
-    no call is double-counted.
+    ``Runnable`` and inherited by chains and models; ``BaseChatModel`` and
+    ``BaseLLM`` however *override* both, so patching ``Runnable`` alone would
+    miss every model -- attribute lookup finds the subclass's own entrypoint
+    first. The two model bases and their shared parent are all patched; the
+    bases are disjoint (``BaseChatModel`` and ``BaseLLM`` are siblings), and
+    each overrides ``invoke`` to delegate to a *generation* method rather than
+    to the parent's ``invoke``, so an instance resolves to exactly one patched
+    entrypoint via its MRO and no call is double-counted.
 
     The top-level ``langchain`` package is a fallback for langchain < 1.0,
     whose ``Chain`` lives at ``langchain.chains.base``. That module was removed
@@ -186,8 +195,18 @@ def _global_targets() -> tuple[list[type], bool]:
         from langchain_core.language_models.chat_models import (  # type: ignore
             BaseChatModel,
         )
+        from langchain_core.language_models.llms import (  # type: ignore
+            BaseLLM,
+        )
 
         targets.append(BaseChatModel)
+        # ``BaseLLM`` (raw completion models) is a *sibling* of BaseChatModel,
+        # not a subclass, and it re-declares ``invoke`` / ``ainvoke`` -- they
+        # resolve to ``generate_prompt`` / ``agenerate_prompt``, never to
+        # ``BaseLanguageModel.invoke``. Patching only the shared base left
+        # every completion-model call unobserved while instrument_langchain()
+        # still reported True.
+        targets.append(BaseLLM)
         targets.append(BaseLanguageModel)
     except ImportError:
         pass
