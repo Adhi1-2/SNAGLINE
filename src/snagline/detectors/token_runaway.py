@@ -57,6 +57,20 @@ class TokenRunawayDetector:
             if warn_fraction is not None
             else cfg.token_budget_warn_fraction
         )
+        # Mirrors Config._validated_token_runaway (issue #317): direct
+        # construction with explicit kwargs skips the Config check, hence the
+        # duplicate guard here. A zero/negative budget breaches on the first
+        # token-bearing step, and a warn_fraction outside (0, 1] either fires
+        # the warning unconditionally or makes it unreachable.
+        if self.budget is not None and self.budget <= 0:
+            raise ValueError(
+                "budget_total_tokens must be positive when set (None disables "
+                f"the envelope); got {self.budget!r}"
+            )
+        if not 0.0 < self.warn_fraction <= 1.0:
+            raise ValueError(
+                f"warn_fraction must be within (0, 1]; got {self.warn_fraction!r}"
+            )
         self._states: dict[str, _WelfordCUSUM] = {}
         self._totals: dict[str, int] = {}
         self._warned: dict[str, bool] = {}

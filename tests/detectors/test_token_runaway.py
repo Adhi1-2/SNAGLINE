@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from snagline.detectors.token_runaway import TokenRunawayDetector
 from snagline.events import StepEvent
 
@@ -90,3 +92,58 @@ def test_state_round_trip_preserves_behavior():
     assert [(r.trigger, r.step_id) for r in _run(d1, rest)] == [
         (r.trigger, r.step_id) for r in _run(d2, rest)
     ], "restored detector must behave identically"
+
+
+def test_zero_budget_does_not_page_at_critical_on_the_first_step():
+    """Issue #317 end-to-end: ``SNAGLINE_EPISODE_TOKEN_BUDGET=0`` used to reach
+    the detector and emit a score-1.0 budget_breach on the *first* token-bearing
+    step (``total >= budget`` was ``10 >= 0``). The bad value is now refused at
+    configuration time, so a monitor built from it never exists and no critical
+    risk can be dispatched."""
+    from snagline import Monitor
+    from snagline.config import Config
+    from snagline.sinks.base import AlertSink
+
+    class Collect(AlertSink):
+        def __init__(self) -> None:
+            self.risks: list = []
+
+        def emit(self, risk) -> None:
+            self.risks.append(risk)
+
+    sink = Collect()
+    with pytest.raises(ValueError, match="episode_token_budget"):
+        Monitor.default(
+            config=Config(token_runaway_enabled=True, episode_token_budget=0),
+            sinks=[sink],
+        )
+    assert sink.risks == [], "no risk may be dispatched from a rejected config"
+
+
+def test_nonpositive_budget_is_rejected():
+    """Issue #317: direct construction with a non-positive budget is a
+    configuration error, mirroring the StagnationDetector precedent
+    (issue #132): direct kwargs skip the Config check, so the detector guards
+    itself."""
+    for budget in (0, -1, -1000):
+        with pytest.raises(ValueError, match="budget_total_tokens"):
+            TokenRunawayDetector(budget_total_tokens=budget)
+
+
+def test_warn_fraction_out_of_range_is_rejected():
+    """Issue #317: ``warn_fraction <= 0`` put the warning threshold at or below
+    zero, so it fired on the first step; ``> 1.0`` put it above the budget, so
+    the breach silenced it and the warning could never fire. Both are
+    configuration errors."""
+    for fraction in (0.0, -0.5, 1.5):
+        with pytest.raises(ValueError, match="warn_fraction"):
+            TokenRunawayDetector(budget_total_tokens=1000, warn_fraction=fraction)
+
+
+def test_none_budget_still_disables_the_envelope():
+    """Issue #317 regression guard: the new range check must not tighten the
+    documented ``None disables envelope`` contract. The CUSUM path keeps its
+    own state either way; only the envelope bookkeeping is budget-gated."""
+    d = TokenRunawayDetector(budget_total_tokens=None, min_samples=5)
+    _run(d, [_event(i, 100) for i in range(10)])
+    assert d._totals == {}, "no budget means the envelope tracks nothing"

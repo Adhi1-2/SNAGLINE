@@ -369,3 +369,43 @@ def test_every_shipped_detector_is_in_readme_detector_table():
         assert det in documented_norm, (
             f"Detector {det!r} not found in README detector table; add a row under '## What it detects'"
         )
+
+
+def test_token_runaway_envelope_out_of_range_aborts_startup():
+    """Issue #317: the token-budget envelope knobs coerce cleanly from env but
+    are out of range, and both fail in the false-positive direction --
+    episode_token_budget=0 fires a score-1.0 budget_breach on the first
+    token-bearing step, and token_budget_warn_fraction=0.0 a score-0.8 warning.
+    Same contract as the stagnation knobs (#132): invalid monitoring config
+    aborts startup loudly at construction/resolve time with a clear error
+    naming the knob, instead of paging at critical severity later."""
+    from snagline.detectors.token_runaway import TokenRunawayDetector
+
+    for budget in (0, -1):
+        with pytest.raises(ValueError, match="episode_token_budget"):
+            Config(token_runaway_enabled=True, episode_token_budget=budget)
+    for fraction in (0.0, -0.5, 1.5):
+        with pytest.raises(ValueError, match="token_budget_warn_fraction"):
+            Config(token_runaway_enabled=True, token_budget_warn_fraction=fraction)
+
+    # Env layering bypasses __post_init__ via setattr, so resolve() must
+    # re-check too -- a typo'd SNAGLINE_EPISODE_TOKEN_BUDGET=0 must not page.
+    with pytest.raises(ValueError, match="episode_token_budget"):
+        Config.resolve(environ={"SNAGLINE_EPISODE_TOKEN_BUDGET": "0"})
+    with pytest.raises(ValueError, match="token_budget_warn_fraction"):
+        Config.resolve(environ={"SNAGLINE_TOKEN_BUDGET_WARN_FRACTION": "0"})
+
+    # The detector's own guard stays as defense in depth for direct use.
+    with pytest.raises(ValueError, match="budget_total_tokens"):
+        TokenRunawayDetector(budget_total_tokens=0)
+    with pytest.raises(ValueError, match="warn_fraction"):
+        TokenRunawayDetector(budget_total_tokens=1000, warn_fraction=1.5)
+
+    # Valid values -- including the documented "None disables the envelope" --
+    # must survive every layer.
+    cfg = Config.resolve(
+        environ={"SNAGLINE_EPISODE_TOKEN_BUDGET": "1000"},
+    )
+    assert cfg.episode_token_budget == 1000
+    assert cfg.token_budget_warn_fraction == 0.8
+    assert Config(token_runaway_enabled=True).episode_token_budget is None
