@@ -87,11 +87,30 @@ def _wrap_one(monitor, original, tool_name):
 
 def wrap_client(monitor, client):
     """Patch the invoke/generate entrypoints on ``client`` in place."""
+    patched = 0
+    already_wrapped = 0
     for name in _LANGCHAIN_METHODS:
         method = getattr(client, name, None)
         if method is None or not callable(method):
             continue
-        setattr(client, name, _wrap_one(monitor, method, "langchain." + name))
+        if getattr(method, "__snagline_wrapped__", False):
+            # Already instrumented, globally or by an earlier wrap_client.
+            # Wrapping the wrapper would emit one event per layer per call
+            # and double every detector's counts (issue #336).
+            already_wrapped += 1
+            continue
+        wrapper = _wrap_one(monitor, method, "langchain." + name)
+        wrapper.__snagline_wrapped__ = True  # type: ignore[attr-defined]
+        wrapper.__snagline_original__ = method  # type: ignore[attr-defined]
+        setattr(client, name, wrapper)
+        patched += 1
+    if patched == 0 and already_wrapped == 0:
+        logger.warning(
+            "snagline.auto: wrap_client found no langchain entrypoint to "
+            "patch on %r (looked for %s)",
+            client,
+            ", ".join(_LANGCHAIN_METHODS),
+        )
     return client
 
 

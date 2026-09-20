@@ -331,6 +331,7 @@ def wrap_client(monitor, client):
     client for chaining.
     """
     patched = 0
+    already_wrapped = 0
     for path in ("chat.completions.create", "completions.create"):
         cur = client
         ok = True
@@ -345,9 +346,22 @@ def wrap_client(monitor, client):
         method = getattr(cur, name, None)
         if method is None or not callable(method):
             continue
-        setattr(cur, name, _wrap_one(monitor, method, "openai." + path))
+        if getattr(method, "__snagline_wrapped__", False):
+            # Already instrumented -- globally, or by a earlier wrap_client on
+            # this instance. Wrapping the wrapper stacks a second layer and
+            # emits one event per layer per call, doubling every detector's
+            # counts (issue #336).
+            already_wrapped += 1
+            continue
+        wrapper = _wrap_one(monitor, method, "openai." + path)
+        wrapper.__snagline_wrapped__ = True  # type: ignore[attr-defined]
+        wrapper.__snagline_original__ = method  # type: ignore[attr-defined]
+        setattr(cur, name, wrapper)
         patched += 1
-    if patched == 0:
+    # 0 new wraps + at least one already-wrapped method = fully instrumented,
+    # not a failure: global mode then a per-client call is a normal
+    # composition, and must stay quiet like _patch_resource_classes's -1.
+    if patched == 0 and already_wrapped == 0:
         logger.warning(
             "snagline.auto: wrap_client found no create method to patch on %r",
             client,

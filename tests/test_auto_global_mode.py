@@ -308,3 +308,40 @@ def test_instrument_global_does_not_walk_client_cached_property(
     out = client.chat.completions.create(model="gpt", messages=[])
     assert out == "sync-ok"
     assert len(mon.events) == 1
+
+
+def test_global_then_per_client_does_not_double_count(
+    fake_openai_sdk, openai_present, caplog
+):
+    """Issue #336 case A: global mode patches the resource class, then a call
+    site wraps that same client per-instance. wrap_client resolved
+    ``client.chat.completions.create`` to the *already-wrapped class
+    attribute* and installed an instance attribute on top of it, so every
+    call traversed both wrappers and emitted twice -- silently doubling every
+    detector's counts in a very natural composition."""
+    mon = _SpyMonitor()
+    assert instrument_openai(mon) is True
+    chat, _ = fake_openai_sdk
+    client = _FakeSdkClient(chat.Completions())
+    # The natural call-site usage on top of a global install.
+    with caplog.at_level("WARNING", logger="snagline"):
+        assert instrument_openai(mon, client=client) is True
+    out = client.chat.completions.create(model="gpt", messages=[])
+    assert out == "sync-ok"
+    assert len(mon.events) == 1, "global + per-client must not stack wrappers"
+    # Everything was already wrapped, which is success -- not the "found
+    # nothing to patch" warning path.
+    assert not any("no create method" in r.message for r in caplog.records)
+
+
+def test_global_then_per_client_anthropic_does_not_double_count(
+    fake_anthropic_sdk, anthropic_present
+):
+    mon = _SpyMonitor()
+    assert instrument_anthropic(mon) is True
+    resource = fake_anthropic_sdk
+    client = _FakeSdkClient(resource.Messages())
+    assert instrument_anthropic(mon, client=client) is True
+    out = client.messages.create(model="claude", messages=[{"role": "user"}])
+    assert out == "sync-ok"
+    assert len(mon.events) == 1

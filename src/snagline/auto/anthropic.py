@@ -328,7 +328,16 @@ def wrap_client(monitor, client):
     if method is None or not callable(method):
         logger.warning("snagline.auto: wrap_client found no create method on %r", cur)
         return client
-    cur.create = _wrap_one(monitor, method, "anthropic.messages.create")
+    if getattr(method, "__snagline_wrapped__", False):
+        # Already instrumented -- globally, or by an earlier wrap_client on
+        # this instance. Wrapping the wrapper would emit two events per call
+        # and double every detector's counts (issue #336). Staying quiet here
+        # keeps global-then-per-client a supported composition.
+        return client
+    wrapper = _wrap_one(monitor, method, "anthropic.messages.create")
+    wrapper.__snagline_wrapped__ = True  # type: ignore[attr-defined]
+    wrapper.__snagline_original__ = method  # type: ignore[attr-defined]
+    cur.create = wrapper
     return client
 
 
