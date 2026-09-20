@@ -13,13 +13,20 @@ Two signals in one detector (issue #84):
   emits at most once per episode no matter how long the run continues.
 
 Only token *counts* are read -- never content (project.md §1.4). Events
-carrying neither token field are ignored entirely. Like the latency detector,
-the CUSUM signal re-fires while elevated; wrap in ``DedupSink`` if per-episode
-quiet is preferred.
+carrying neither token field are ignored entirely, as are counts that are not
+usable measurements: a non-finite value (a malformed provider ``usage``
+object) used to raise out of ``observe`` -- ``int(nan)`` is a ValueError,
+``int(inf)`` an OverflowError -- leaving the detector dead for the run once
+fail-open swallowed it (issue #349). A negative count is dropped for the same
+reason: it is not a measurement, and reducing the running budget total would
+let a bad provider hide a real breach. Like the latency detector, the CUSUM
+signal re-fires while elevated; wrap in ``DedupSink`` if per-episode quiet is
+preferred.
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from snagline.config import Config
@@ -79,7 +86,20 @@ class TokenRunawayDetector:
     def observe(self, event: StepEvent) -> FailureRisk | None:
         if event.tokens_in is None and event.tokens_out is None:
             return None
-        step_tokens = int((event.tokens_in or 0) + (event.tokens_out or 0))
+        # A token count that is not a usable measurement is treated as "no
+        # signal for this step", exactly like a step carrying neither field.
+        # Adapters derive these from provider ``usage`` objects, and a
+        # malformed blob is a realistic failure, not a synthetic one:
+        # ``int(nan)`` raises ValueError and ``int(inf)`` OverflowError, both
+        # of which escape ``observe`` and are swallowed by Monitor.ingest's
+        # fail-open guard -- the detector then stays installed and reports
+        # nothing for the rest of the run. A negative count is not a
+        # measurement either, and silently *reducing* the running budget total
+        # would let a bad adapter hide a real breach (issue #349).
+        raw = (event.tokens_in or 0) + (event.tokens_out or 0)
+        if not math.isfinite(raw) or raw < 0:
+            return None
+        step_tokens = int(raw)
         ep = event.episode_id
 
         # Deterministic envelope first: it needs no warm-up and carries the

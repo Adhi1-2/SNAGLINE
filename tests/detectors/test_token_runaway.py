@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -147,3 +147,93 @@ def test_none_budget_still_disables_the_envelope():
     d = TokenRunawayDetector(budget_total_tokens=None, min_samples=5)
     _run(d, [_event(i, 100) for i in range(10)])
     assert d._totals == {}, "no budget means the envelope tracks nothing"
+
+
+def _usage_event(step_id: int, tokens_in: float, tokens_out: float = 0.0) -> StepEvent:
+    # Raw ``usage``-derived values, as adapters decode them: floats, possibly
+    # non-finite (a malformed provider blob) -- the int() conversion happens
+    # inside observe(), and before issue #349 it happened *before* validation.
+    # StepEvent's field is int|None, so a raw float needs the cast the adapter
+    # would normally perform; the point here is the pre-conversion value.
+    return StepEvent(
+        step_id=str(step_id),
+        episode_id="ep",
+        timestamp=float(step_id),
+        action_type="tool_call",
+        action_signature=f"u{step_id}",
+        tool_name="search",
+        tokens_in=cast("int | None", tokens_in),
+        tokens_out=cast("int | None", tokens_out),
+    )
+
+
+@pytest.mark.parametrize(
+    "tokens_in,tokens_out",
+    [
+        (float("nan"), 0.0),
+        (0.0, float("nan")),
+        (float("inf"), 0.0),
+        (0.0, float("-inf")),
+        (float("nan"), float("inf")),
+        (-50.0, 0.0),
+        (10.0, -100.0),
+    ],
+)
+def test_non_measurement_token_counts_are_dropped_not_fatal(
+    tokens_in: float, tokens_out: float
+):
+    """Issue #349: a token count that is not a usable measurement must be
+    treated as "no signal for this step", exactly like an event carrying
+    neither field. Before the fix ``int(nan)`` raised ValueError and
+    ``int(inf)`` OverflowError out of ``observe()`` -- both are swallowed by
+    Monitor.ingest's fail-open guard, so the detector stayed installed and
+    reported nothing for the rest of the run. A negative count is not a
+    measurement either, and silently *reducing* the running budget total
+    would let a bad adapter hide a real breach."""
+    d = TokenRunawayDetector(budget_total_tokens=1000)
+    assert d.observe(_usage_event(0, tokens_in, tokens_out)) is None
+    assert d._totals.get("ep", 0) == 0, "a non-measurement must not accumulate"
+
+
+def test_detector_stays_live_after_a_malformed_usage_blob():
+    """Issue #349 regression: the point of dropping the bad sample is that the
+    detector keeps working for the rest of the run. A NaN on step 0 must not
+    cost the envelope its warning or its breach."""
+    d = TokenRunawayDetector(budget_total_tokens=1000)
+    assert d.observe(_usage_event(0, float("nan"))) is None
+    assert d.observe(_usage_event(1, -9999.0)) is None
+    assert d._totals.get("ep", 0) == 0
+
+    warned = d.observe(_usage_event(2, 850.0))
+    assert warned is not None and warned.trigger == "token_runaway"
+    breach = d.observe(_usage_event(3, 200.0))
+    assert breach is not None and breach.trigger == "budget_breach"
+
+
+def test_negative_count_cannot_hide_a_breach():
+    """Issue #349: the envelope total is cumulative, so a negative count used
+    to offset real spend (``-900 + 1100 = 200`` -- under budget). It is now
+    dropped, so 1100 alone breaches as it should."""
+    d = TokenRunawayDetector(budget_total_tokens=1000)
+    assert d.observe(_usage_event(0, -900.0)) is None
+    r = d.observe(_usage_event(1, 1100.0))
+    assert r is not None
+    assert r.trigger == "budget_breach"
+
+
+def test_nan_mid_run_leaves_the_cusum_baseline_intact():
+    """Issue #349: the CUSUM path shares the poisoning risk with the latency
+    detector (issue #350). A NaN must not reach the Welford learner or the
+    CUSUM accumulator; a healthy baseline keeps scoring normally after it."""
+    d = TokenRunawayDetector(budget_total_tokens=None, min_samples=3)
+    for i in range(3):
+        assert d.observe(_usage_event(i, 100.0)) is None
+    state = d._states["ep"]
+    assert state.frozen and state.mu0 == 100.0
+
+    assert d.observe(_usage_event(3, float("nan"))) is None
+    assert state.mu0 == 100.0, "baseline must be unchanged by a NaN"
+    assert state.cusum == 0.0, "accumulated drift must not be zeroed by a NaN"
+
+    alarmed = [d.observe(_usage_event(i, 10000.0)) is not None for i in range(4, 10)]
+    assert any(alarmed), "detector must still alarm after the bad sample"

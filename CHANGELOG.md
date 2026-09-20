@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   score-0.8 warning; values above `1.0` made the pre-breach warning
   unreachable. An out-of-range value is now a configuration error naming the
   knob (#317).
+- `TokenRunawayDetector` no longer dies on a malformed token count. A
+  non-finite `tokens_in` / `tokens_out` (a bad provider `usage` blob) used to
+  raise out of `observe` -- `int(nan)` is a `ValueError`, `int(inf)` an
+  `OverflowError` -- which `Monitor.ingest`'s fail-open guard swallowed,
+  leaving the detector installed but silent for the rest of the run. A
+  negative count was accepted and silently reduced the running budget total,
+  letting a bad adapter hide a real breach. Both are now dropped like a step
+  carrying neither token field (#349).
 
 ## [0.1.0] - 2026-08-27
 
