@@ -78,16 +78,38 @@ def _emit(monitor, counter, model, tool_name, sig_text, start, error) -> None:
     monitor.ingest(event)
 
 
+def _resolve_model(original, args):
+    """Return ``(model, call_args)`` for a wrapped call.
+
+    ``original`` is a *bound* method when the target was a client instance, so
+    ``__self__`` names the model and ``args`` holds only the call input. When
+    the target was a *class* -- global mode -- ``getattr(cls, name)`` returns
+    an unbound function: ``__self__`` is absent, and the instance arrives as
+    ``args[0]`` once Python binds the wrapper through the descriptor protocol.
+    Reading the model from ``__self__`` there yielded ``None`` (so every global
+    event reported model ``"langchain"``) and left the instance inside ``args``,
+    baking its ``repr`` into the action signature.
+    """
+    bound = getattr(original, "__self__", None)
+    if bound is not None:
+        return bound, args
+    if not args:
+        return None, args
+    return args[0], args[1:]
+
+
+def _model_name(model):
+    return getattr(model, "model_name", None) or getattr(model, "model", "langchain")
+
+
 def _wrap_one(monitor, original, tool_name):
     counter = itertools.count()
     is_async = inspect.iscoroutinefunction(original)
 
     def _sync(*args, **kwargs):
-        sig_text = str(kwargs.get("input") or kwargs.get("prompts") or args)
-        model = getattr(original, "__self__", None)
-        model_name = getattr(model, "model_name", None) or getattr(
-            model, "model", "langchain"
-        )
+        model, call_args = _resolve_model(original, args)
+        sig_text = str(kwargs.get("input") or kwargs.get("prompts") or call_args)
+        model_name = _model_name(model)
         start = time.perf_counter()
         error = False
         try:
@@ -100,11 +122,9 @@ def _wrap_one(monitor, original, tool_name):
         return result
 
     async def _async(*args, **kwargs):
-        sig_text = str(kwargs.get("input") or kwargs.get("prompts") or args)
-        model = getattr(original, "__self__", None)
-        model_name = getattr(model, "model_name", None) or getattr(
-            model, "model", "langchain"
-        )
+        model, call_args = _resolve_model(original, args)
+        sig_text = str(kwargs.get("input") or kwargs.get("prompts") or call_args)
+        model_name = _model_name(model)
         start = time.perf_counter()
         error = False
         try:
@@ -172,9 +192,11 @@ def _global_targets() -> tuple[list[type], bool]:
     entrypoint down with a wrong "LangChain not installed" message (issue
     #339).
 
-    Returns ``(targets, core_present)``: ``core_present`` is False only when
-    langchain-core is genuinely absent, which is reported differently from
-    "present but reshaped" by the caller.
+    Returns ``(targets, core_present)``: ``core_present`` distinguishes three
+    states, only the first of which deserves "not installed" -- a genuinely
+    absent dependency. A package that imports but exposes none of the classes,
+    or whose own imports fail, is present-but-unusable and is reported by the
+    caller as a monitoring failure instead (issue #339).
     """
     targets: list[type] = []
     # Probe the package itself first, so a present-but-reshaped SDK cannot be
@@ -186,8 +208,17 @@ def _global_targets() -> tuple[list[type], bool]:
         import langchain_core  # type: ignore # noqa: F401 (presence probe)
 
         core_present = True
+    except ModuleNotFoundError as exc:
+        # Only a missing ``langchain_core`` itself means "not installed". A
+        # ModuleNotFoundError naming some *other* module means the SDK is
+        # present but one of its own imports is broken -- an unusable install,
+        # not an absent one, and reporting "not installed" would send the
+        # operator looking for a pip install that changes nothing.
+        core_present = exc.name != "langchain_core"
     except ImportError:
-        pass
+        # A plain ImportError (e.g. a broken optional dependency inside the
+        # package) is likewise installed-but-unusable, not absent.
+        core_present = True
     try:
         from langchain_core.language_models import (  # type: ignore
             BaseLanguageModel,
@@ -224,7 +255,10 @@ def instrument_langchain(monitor, client=None) -> bool:
 
     If ``client`` is provided, only that instance is wrapped. Otherwise the
     installed ``langchain`` / ``langchain-core`` base classes are patched
-    globally, so every model and chain -- present or future -- is observed.
+    globally, so the supported model bases and legacy ``Chain`` instances --
+    present or future -- are observed. Chains that are pure ``Runnable``
+    compositions are out of scope here and need per-client mode; see the module
+    docstring for why ``Runnable`` itself is not patched.
     Returns True if anything was patched, False if LangChain is absent or no
     entrypoint could be found.
     """

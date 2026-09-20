@@ -9,6 +9,7 @@ import types
 import pytest
 
 from snagline.auto.langchain import instrument_langchain, wrap_client
+from snagline.events import make_signature
 
 
 class _SpyMonitor:
@@ -111,6 +112,8 @@ def _delegating_chat_base():
     the user's ``invoke``, one for the internal ``generate``)."""
 
     class BaseChatModel:
+        model_name = "chat-base"
+
         def invoke(self, input, **kw):
             return self.generate(input)
 
@@ -127,6 +130,8 @@ def _delegating_chat_base():
         # A *sibling* of BaseChatModel, not a subclass: it re-declares the
         # entrypoints and routes them elsewhere than the shared parent's, so
         # patching only BaseLanguageModel never intercepts it.
+        model_name = "completion-base"
+
         def invoke(self, input, **kw):
             return self.generate_prompt(input)
 
@@ -140,6 +145,8 @@ def _delegating_chat_base():
             return "llm-async-ok"
 
     class BaseLanguageModel:
+        model_name = "lm-base"
+
         def invoke(self, input, **kw):
             return "lm-ok"
 
@@ -287,3 +294,66 @@ def test_global_mode_distinguishes_absent_from_reshaped(monkeypatch, caplog):
         assert instrument_langchain(_SpyMonitor()) is False
     assert any("NOT monitored" in r.message for r in caplog.records)
     assert not any("not installed" in r.message for r in caplog.records)
+
+
+def test_global_mode_distinguishes_absent_from_broken(monkeypatch, caplog):
+    """``import langchain_core`` can fail without the package being missing:
+    a broken transitive dependency raises ``ModuleNotFoundError`` naming some
+    *other* module. That is an unusable install, not an absent one, so it must
+    not be reported as "not installed" (issue #339)."""
+
+    # Make ``import langchain_core`` fail the way a broken transitive dep does:
+    # the package is discoverable (so it is installed) but its own import
+    # raises for a module that is not langchain_core itself.
+    real_import = __import__
+
+    def _fake_import(name, *a, **kw):
+        if name == "langchain_core":
+            raise ModuleNotFoundError("No module named 'pydantic'", name="pydantic")
+        return real_import(name, *a, **kw)
+
+    _force_absent(monkeypatch)  # drop any cached, healthy copy first
+    monkeypatch.setitem(sys.modules, "langchain_core", None)
+    monkeypatch.setattr("builtins.__import__", _fake_import)
+
+    with caplog.at_level("WARNING", logger="snagline"):
+        assert instrument_langchain(_SpyMonitor()) is False
+    assert not any("not installed" in r.message for r in caplog.records), (
+        "a broken transitive dep is not an absent dependency"
+    )
+    assert any("NOT monitored" in r.message for r in caplog.records)
+
+
+def test_global_mode_records_the_model_name(fake_langchain_core):
+    """Patching a *class* yields an unbound ``original``, so ``__self__`` is
+    absent and the instance arrives as ``args[0]``. Reading the model name from
+    ``__self__`` there returned ``None`` and every global event was attributed
+    to ``"langchain"`` instead of the model."""
+    chat, llm, lm = fake_langchain_core
+    mon = _SpyMonitor()
+    assert instrument_langchain(mon) is True
+
+    chat.BaseChatModel().invoke("hi")
+    llm.BaseLLM().invoke("hi")
+    lm.BaseLanguageModel().invoke("hi")
+
+    assert [e.action_signature for e in mon.events] == [
+        make_signature("langchain_call", name, "('hi',)")
+        for name in ("chat-base", "completion-base", "lm-base")
+    ]
+
+
+def test_global_mode_excludes_the_instance_from_the_signature(fake_langchain_core):
+    """The instance reaching ``args[0]`` in global mode is an implementation
+    detail of the call, not part of the input: leaving it in ``args`` baked its
+    ``repr`` into ``action_signature``, so two calls with identical input
+    produced two different signatures and defeated dedup."""
+    chat, _llm, _lm = fake_langchain_core
+    mon = _SpyMonitor()
+    assert instrument_langchain(mon) is True
+
+    chat.BaseChatModel().invoke("hi")
+    chat.BaseChatModel().invoke("hi")  # a *different* instance, same input
+
+    assert len(mon.events) == 2
+    assert mon.events[0].action_signature == mon.events[1].action_signature
