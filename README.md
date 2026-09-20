@@ -38,7 +38,7 @@ Existing monitoring approaches have gaps:
 
 SNAGLINE asks a narrower question: can a zero-dependency, O(1) per-step monitor catch the most common failure modes (loops, error cascades, latency drift) in any agent, running on any framework, at microsecond-scale overhead?
 
-The answer is yes. SNAGLINE's tier-1 detectors are deterministic, O(1) amortized per step, run with no network calls and no LLM calls, and cost a few microseconds per step (see [Empirical Verification](#empirical-verification) and run `snagline bench` for your own hardware). They run cheaply enough to instrument every step of a production agent.
+The answer is yes. SNAGLINE's tier-1 detectors are deterministic, O(1) amortized per step, run with no network calls and no LLM calls, and cost a few microseconds per step (`ingest()` alone is median ~1.65 us/step; the full per-step path, including `StepEvent` construction, ~4.3 us/step on Apple M1; see [Empirical Verification](#empirical-verification) and run `snagline bench` for your own hardware). They run cheaply enough to instrument every step of a production agent.
 
 `snagline bench` reports the full per-step path an integrator pays -- building the `StepEvent` and then ingesting it -- plus an `ingest only` split. The two differ because event construction is not free: `StepEvent` is a frozen dataclass whose generated `__init__` routes every field through `object.__setattr__` to enforce immutability, and that costs more than `ingest()` itself (issue #312). The headline used to time `ingest()` alone and silently excluded it.
 
@@ -142,8 +142,8 @@ baseline = load_baseline("baseline.json")
 config = Config(
     goal_drift_enabled=True,
     goal_drift_baseline=baseline,
-    ml_ensemble_enabled=True,   # combine all base detectors into one signal
-    stagnation_enabled=True,    # novelty-collapse detection, no baseline needed
+    ml_ensemble_enabled=True,  # combine all base detectors into one signal
+    stagnation_enabled=True,  # novelty-collapse detection, no baseline needed
 )
 monitor = Monitor.default(config=config)
 ```
@@ -163,7 +163,7 @@ in [docs/RETRAIN_CADENCE.md](docs/RETRAIN_CADENCE.md)).
 |:--|:--|
 | **Zero dependencies** | The core needs nothing but Python 3.10+ -- `dependencies = []` in `pyproject.toml`, non-negotiable. Published to PyPI as `snagline` (`pip install snagline`, or `pip install .` from a clone, see [Quick Start](#quick-start)). Every framework adapter is an optional extra. |
 | **Fail-open guarantee** | Detector/sink exceptions are caught, logged, and never propagated into the host agent. A monitoring library that can crash the thing it monitors is a non-starter. |
-| **Microsecond-scale overhead** | The full per-step path -- constructing a `StepEvent` and ingesting it -- is a few microseconds per step, and `ingest()` alone is median 2.43 us/step, p99 27.71 us/step over 200,000 synthetic steps. Cheap enough to run on every step of a week-long run. Numbers and provenance in [Empirical Verification](#automated-test-suite-and-benchmarks); reproduce with `snagline bench`. |
+| **Microsecond-scale overhead** | The full per-step path -- constructing a `StepEvent` and ingesting it -- is a few microseconds per step, and `ingest()` alone is median 1.65 us/step, p99 1.96 us/step over 200,000 synthetic steps. Cheap enough to run on every step of a week-long run. Numbers and provenance in [Empirical Verification](#automated-test-suite-and-benchmarks); reproduce with `snagline bench`. |
 | **Framework-agnostic core** | All detector and sink logic operates only on the canonical `StepEvent` schema. Framework-specific code lives in isolated adapter modules and nowhere else. |
 | **No content retention** | Detectors reason about hashes, timings, counts, and booleans -- never prompt or response content. Adoption blocker if left ambiguous. |
 | **Streaming-first, batch-capable** | Primary use is live monitoring of a running agent. The same event schema and detectors also work over an exported trajectory file for offline analysis. |
@@ -182,23 +182,20 @@ from snagline import Monitor, Config
 
 config = Config(
     # Loop detector
-    loop_window_size=12,          # sliding window size (steps)
-    loop_repeat_threshold=3,      # repeats needed to fire
-
+    loop_window_size=12,  # sliding window size (steps)
+    loop_repeat_threshold=3,  # repeats needed to fire
     # Error cascade detector
-    cascade_window_size=10,       # window for slow-burn detection
-    cascade_error_threshold=3,    # errors in window to fire
+    cascade_window_size=10,  # window for slow-burn detection
+    cascade_error_threshold=3,  # errors in window to fire
     cascade_consecutive_threshold=3,  # consecutive errors to fire
-
     # Latency anomaly (CUSUM) detector
-    cusum_k=0.5,                  # slack parameter (sensitivity)
-    cusum_h=5.0,                  # alarm threshold
-    cusum_min_samples=5,          # warm-up before alarming (issue #9 lowered it from 20)
-    cusum_sigma_floor_abs=1.0,    # minimum sigma (ms) for constant baselines
-    cusum_sigma_floor_rel=0.05,   # minimum sigma as fraction of mean
-
+    cusum_k=0.5,  # slack parameter (sensitivity)
+    cusum_h=5.0,  # alarm threshold
+    cusum_min_samples=5,  # warm-up before alarming (issue #9 lowered it from 20)
+    cusum_sigma_floor_abs=1.0,  # minimum sigma (ms) for constant baselines
+    cusum_sigma_floor_rel=0.05,  # minimum sigma as fraction of mean
     # Global
-    fail_open=True,               # False propagates detector/sink exceptions
+    fail_open=True,  # False propagates detector/sink exceptions
 )
 
 monitor = Monitor.default(config=config)
@@ -337,11 +334,18 @@ tests : run `python -m pytest tests/ -q` and trust your own output.
         each leg's totals.
 bench : reports the full per-step path (construct a StepEvent + ingest it)
         plus an "ingest only" split over 200,000 synthetic steps.
-        ingest only: median 2.43 us/step, p99 27.71 us/step
-        (measured 2026-08-26 on Apple M1, arm64, CPython 3.14.5;
-         earlier 1.91 / 33.90 on same hardware 2026-08-15;
-         independently reproduced at commit f7857d1 on Apple M4 /
-         CPython 3.13.5: median 1.70 us/step, p99 1.77 us/step)
+        full per-step path: median ~4.3 us/step
+        ingest only: median 1.65 us/step, p99 1.96 us/step
+        (measured 2026-09-29 on Apple M1, arm64, CPython 3.13.5, commit
+         ff940ff; stable at median 1.62--1.65 across three runs;
+         reflects the ingest hot-path work of PRs #307 / #311;
+         earlier 2.43 / 27.71 on the same hardware 2026-08-26 and
+         1.91 / 33.90 2026-08-15; independently reproduced at commit
+         f7857d1 on Apple M4 / CPython 3.13.5: median 1.70 us/step,
+         p99 1.77 us/step)
+        With window auto-scaling enabled (max_window 512 and 2048): median
+        2.54 / 2.52 us/step -- flat across a 4x window range, the O(1)
+        amortized claim measured rather than asserted.
         The full-step headline is higher by the construction cost: a frozen
         dataclass's __init__ routes every field through object.__setattr__,
         which on the measured hardware costs more than ingest() itself
@@ -481,13 +485,15 @@ genuinely are loops, so the loop detector (and the meltdown detector for
 labels. The gate the harness exists for -- `healthy controls that fired: 0`,
 exit code 0 -- still holds.
 
-Ingest overhead on commit `22faeae`'s parent-line hardware: ingest-only
-median 2.43 us/step, p99 27.71 us/step over 200,000 synthetic steps
+Ingest overhead on commit `ff940ff`: ingest-only median 1.65 us/step,
+p99 1.96 us/step over 200,000 synthetic steps
 (`python benchmarks/overhead_benchmark.py` or `snagline bench`; Apple M1,
-arm64, CPython 3.14.5). The same run's headline number is the full per-step
+arm64, CPython 3.13.5). The same run's headline number is the full per-step
 path -- StepEvent construction plus ingest -- which is higher by the
 construction cost (issue #312); the ingest-only figure above is what to
-compare against older ingest-only measurements.
+compare against older ingest-only measurements. With window auto-scaling
+enabled the median stays 2.52-2.54 us/step across max_window 512 and 2048,
+so the O(1) amortized contract holds as windows grow.
 
 ## Framework Integration
 
@@ -560,6 +566,7 @@ Custom sinks implement the `AlertSink` protocol:
 ```python
 from snagline.sinks.base import AlertSink
 from snagline.risk import FailureRisk
+
 
 class MySink:
     def emit(self, risk: FailureRisk) -> None:
