@@ -33,9 +33,7 @@ def test_from_env_ignores_unknown_prefix_and_keys():
     assert cfg.goal_drift_enabled is False
 
 
-@pytest.mark.parametrize(
-    "field", ("calibration_baseline", "goal_drift_baseline")
-)
+@pytest.mark.parametrize("field", ("calibration_baseline", "goal_drift_baseline"))
 def test_from_env_warns_when_a_known_field_is_not_a_scalar(field, caplog):
     # The key names a real field, so silently ignoring it reads as "applied".
     # A user reaching for the object instead of its *_path variant must be told
