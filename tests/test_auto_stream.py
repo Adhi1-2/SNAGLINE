@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
 from snagline.auto.anthropic import wrap_client as wrap_anthropic
 from snagline.auto.openai import wrap_client as wrap_openai
 
@@ -44,6 +46,12 @@ class _SyncStream:
     def close(self) -> None:
         self.closed = True
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
 
 class _AsyncStream:
     def __init__(self, chunks: list[Any]) -> None:
@@ -60,6 +68,12 @@ class _AsyncStream:
 
     async def aclose(self) -> None:
         self.closed = True
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.aclose()
 
 
 def _openai_client(stream: Any):
@@ -185,5 +199,100 @@ def test_async_stream_close_emits() -> None:
         await out.aclose()
         assert inner.closed
         assert len(mon.events) == 1
+
+    asyncio.run(go())
+
+
+def test_openai_stream_context_manager_emits_once_and_closes() -> None:
+    # The ``with stream as s:`` form is the primary documented streaming
+    # idiom for both SDKs. Implicit special-method lookup for ``with``
+    # resolves on the type, never through the wrapper's __getattr__, so the
+    # raw stream's __enter__/__exit__ did not help and the wrapper itself
+    # raised TypeError while emitting nothing (issue #335).
+    mon = _SpyMonitor()
+    inner = _SyncStream(["a", "b"])
+    client = wrap_openai(mon, _openai_client(inner))
+    out = client.chat.completions.create(model="m", messages=[], stream=True)
+    with out as s:
+        # ``as`` binds the wrapper, not the raw stream, so iteration is still
+        # observed and exhaustion emits exactly once.
+        assert s is out
+        assert list(s) == ["a", "b"]
+    assert inner.closed, "exiting the with must close the underlying stream"
+    assert len(mon.events) == 1
+    assert mon.events[0].error is False
+
+
+def test_anthropic_stream_context_manager_emits_once_and_closes() -> None:
+    mon = _SpyMonitor()
+    inner = _SyncStream(["x"])
+    client = wrap_anthropic(mon, _anthropic_client(inner))
+    out = client.messages.create(model="m", messages=[], stream=True)
+    with out:
+        pass
+    assert inner.closed
+    assert len(mon.events) == 1
+    assert mon.events[0].error is False
+
+
+def test_stream_context_manager_records_body_exception() -> None:
+    # An exception escaping the with body is the call's failure. Closing
+    # alone would record it as a ~0ms success.
+    mon = _SpyMonitor()
+    inner = _SyncStream(["a"])
+    client = wrap_openai(mon, _openai_client(inner))
+    out = client.chat.completions.create(model="m", messages=[], stream=True)
+    with pytest.raises(RuntimeError, match="body boom"):
+        with out as s:
+            next(s)
+            raise RuntimeError("body boom")
+    assert inner.closed, "the underlying stream is still closed on the error path"
+    assert len(mon.events) == 1
+    assert mon.events[0].error is True
+    assert mon.events[0].error_type == "RuntimeError"
+
+
+def test_async_stream_context_manager_emits_once_and_acloses() -> None:
+    async def go() -> None:
+        mon = _SpyMonitor()
+        inner = _AsyncStream(["z"])
+
+        async def _create(**kw: Any) -> Any:
+            return inner
+
+        from snagline.auto.openai import _wrap_one
+
+        wrapped = _wrap_one(mon, _create, "openai.messages.create")
+        out = await wrapped(model="m", messages=[], stream=True)
+        async with out as s:
+            assert s is out
+            assert [c async for c in s] == ["z"]
+        assert inner.closed
+        assert len(mon.events) == 1
+        assert mon.events[0].error is False
+
+    asyncio.run(go())
+
+
+def test_async_stream_context_manager_records_body_exception() -> None:
+    async def go() -> None:
+        mon = _SpyMonitor()
+        inner = _AsyncStream(["z"])
+
+        async def _create(**kw: Any) -> Any:
+            return inner
+
+        from snagline.auto.openai import _wrap_one
+
+        wrapped = _wrap_one(mon, _create, "openai.messages.create")
+        out = await wrapped(model="m", messages=[], stream=True)
+        with pytest.raises(RuntimeError, match="body boom"):
+            async with out as s:
+                await anext(s)
+                raise RuntimeError("body boom")
+        assert inner.closed
+        assert len(mon.events) == 1
+        assert mon.events[0].error is True
+        assert mon.events[0].error_type == "RuntimeError"
 
     asyncio.run(go())

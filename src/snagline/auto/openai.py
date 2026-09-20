@@ -150,6 +150,25 @@ class _SyncStreamWrapper:
             with contextlib.suppress(Exception):
                 close()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        # The ``with`` form is the primary documented streaming idiom, but
+        # implicit special-method lookup resolves on the type, never through
+        # __getattr__ -- so proxying the raw stream's __enter__/__exit__ is
+        # not enough, and the protocol was missing entirely (issue #335).
+        # Returning self keeps iteration on the wrapper, so exhaustion still
+        # emits exactly once.
+        if exc_type is not None:
+            # An exception escaping the body is the call's failure; close()
+            # on its own would record it as a success.
+            self._emit(error=True, error_type=exc_type.__name__)
+        # __emit is guarded: if the stream already emitted at exhaustion this
+        # is a no-op, and the underlying stream still gets closed. The SDK's
+        # own Stream.__exit__ is exactly self.close().
+        self.close()
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._stream, name)
 
@@ -222,6 +241,17 @@ class _AsyncStreamWrapper:
                 res = close()
                 if inspect.isawaitable(res):
                     await res
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        # See _SyncStreamWrapper.__exit__: the ``async with`` form is a
+        # documented idiom, and implicit lookup never goes through
+        # __getattr__, so the protocol must live on the type (issue #335).
+        if exc_type is not None:
+            self._emit(error=True, error_type=exc_type.__name__)
+        await self.aclose()
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._stream, name)
