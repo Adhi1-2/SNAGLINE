@@ -533,7 +533,10 @@ class Config:
         Reads ``<prefix><FIELD>`` (case-insensitive). Unknown prefixes, unknown
         keys, and values that fail to coerce are ignored (logged at warning)
         rather than fatal, so a host can pass through unrelated environment
-        without breaking startup.
+        without breaking startup. A key that *does* name a field but whose type
+        cannot be built from a string (an object reference such as a
+        ``BaselineProfile``) is likewise ignored, but warned about by name: the
+        field exists, so silent acceptance reads as "applied" (issue #340).
         """
         environ = os.environ if environ is None else environ
         hints = get_type_hints(cls)
@@ -550,6 +553,17 @@ class Config:
                     overrides[name] = _coerce(hint, value)
                 except ValueError:
                     logger.warning("snagline: ignoring bad env %s=%r", key, value)
+            else:
+                # The key names a real field that no string can build. Say so:
+                # ``SNAGLINE_CALIBRATION_BASELINE`` looks like the knob a user
+                # wants but silently does nothing (issue #340).
+                logger.warning(
+                    "snagline: ignoring env %s=%r: %s is not a scalar field "
+                    "and cannot be set from the environment",
+                    key,
+                    value,
+                    name,
+                )
         return overrides
 
     @classmethod

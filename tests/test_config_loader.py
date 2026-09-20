@@ -27,11 +27,37 @@ def test_from_env_ignores_unknown_prefix_and_keys():
     env = {
         "PATH": "/usr/bin",
         "SNAGLINE_BOGUS_FIELD": "1",
-        "SNAGLINE_GOAL_DRIFT_BASELINE": "cannot-load-this",  # complex type -> skipped
     }
     cfg = Config.from_env(environ=env)
     assert cfg.fail_open is True  # default unchanged
     assert cfg.goal_drift_enabled is False
+
+
+@pytest.mark.parametrize(
+    "field", ("calibration_baseline", "goal_drift_baseline")
+)
+def test_from_env_warns_when_a_known_field_is_not_a_scalar(field, caplog):
+    # The key names a real field, so silently ignoring it reads as "applied".
+    # A user reaching for the object instead of its *_path variant must be told
+    # (issue #340).
+    key = f"SNAGLINE_{field.upper()}"
+    with caplog.at_level("WARNING", logger="snagline"):
+        overrides = Config.from_env_overrides(environ={key: "/tmp/baseline.json"})
+    assert overrides == {}, "a non-scalar field still cannot be set from a string"
+    assert any(
+        key in r.getMessage() and "cannot be set from the environment" in r.getMessage()
+        for r in caplog.records
+    ), "the warning must name the offending key so it is actionable"
+
+
+def test_from_env_stays_quiet_for_genuinely_unknown_keys(caplog):
+    # Only real-but-unsettable fields warrant a warning: a host legitimately
+    # passes through unrelated SNAGLINE_-prefixed variables.
+    with caplog.at_level("WARNING", logger="snagline"):
+        Config.from_env_overrides(environ={"SNAGLINE_BOGUS_FIELD": "1"})
+    assert not any(
+        "cannot be set from the environment" in r.getMessage() for r in caplog.records
+    )
 
 
 def test_from_env_skips_uncoercible_values():
