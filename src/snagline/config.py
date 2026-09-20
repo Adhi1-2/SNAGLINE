@@ -151,6 +151,31 @@ def _validated_token_runaway(cfg: Config) -> None:
         )
 
 
+def _validated_cusum_bars(cfg: Config) -> None:
+    """Validate the CUSUM alarm bars (issue #331); raise when non-positive.
+
+    ``cusum_h`` (latency) and ``token_cusum_h`` (token runaway) are each the
+    denominator of their detector's risk score, so a bad value is not merely
+    a tuning mistake -- it breaks the detector in a way fail-open hides:
+
+    ``h == 0`` divides by zero the first time the CUSUM alarms. ``ingest`` is
+    fail-open, so the ``ZeroDivisionError`` is logged once and swallowed and
+    the detector keeps raising on every step thereafter: silently dead for the
+    whole run while the host believes it is watched. ``h < 0`` alarms on every
+    step, because ``cusum`` is clamped to ``>= 0`` by construction and any
+    positive deviation then clears ``cusum > h`` -- healthy traffic pages
+    constantly. Both are accepted by every config layer today.
+
+    The bars are multiples of sigma, so no upper bound applies: a very large
+    ``h`` is a legitimate "make this detector insensitive", which is not a
+    defect, just a quiet detector.
+    """
+    for name in ("cusum_h", "token_cusum_h"):
+        value = getattr(cfg, name)
+        if value <= 0.0:
+            raise ValueError(f"{name} must be > 0.0; got {value!r}")
+
+
 def _validated_log_format(value: str) -> str:
     """Normalize and validate a ``log_format`` value; raise when invalid.
 
@@ -515,6 +540,9 @@ class Config:
         # Issue #317: same policy for the token-budget envelope. Its defaults
         # are valid too, so only a configured value can trip these checks.
         _validated_token_runaway(self)
+        # Issue #331: same policy for the CUSUM alarm bars. Defaults are valid,
+        # so this only bites an operator who set h to 0 or a negative value.
+        _validated_cusum_bars(self)
         _validated_max_live_episodes(self)
 
     # --- 12-factor configuration (project.md §5.4, ATTACH_ANY_SYSTEM P0) -----
@@ -626,5 +654,10 @@ class Config:
         # SNAGLINE_EPISODE_TOKEN_BUDGET=0 must abort startup with a clear
         # error, not page at critical severity on the first ingested step.
         _validated_token_runaway(cfg)
+        # Same re-validation for the CUSUM alarm bars (issue #331):
+        # SNAGLINE_CUSUM_H=0 must abort startup with a clear error, not kill
+        # the latency detector for the whole run behind a swallowed
+        # ZeroDivisionError.
+        _validated_cusum_bars(cfg)
         _validated_max_live_episodes(cfg)
         return cfg

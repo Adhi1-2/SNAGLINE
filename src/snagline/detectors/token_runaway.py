@@ -71,6 +71,13 @@ class TokenRunawayDetector:
             raise ValueError(
                 f"warn_fraction must be within (0, 1]; got {self.warn_fraction!r}"
             )
+        # Mirrors Config._validated_cusum_bars (issue #331): direct construction
+        # with an explicit h skips the Config check, hence the duplicate guard.
+        # h is the score's denominator, so h == 0 divides by zero the first time
+        # the CUSUM alarms -- fail-open then leaves the detector dead for the
+        # run -- and h < 0 alarms on every step, since cusum is clamped to >= 0.
+        if self.h <= 0.0:
+            raise ValueError(f"token_cusum_h must be > 0.0; got {self.h!r}")
         self._states: dict[str, _WelfordCUSUM] = {}
         self._totals: dict[str, int] = {}
         self._warned: dict[str, bool] = {}

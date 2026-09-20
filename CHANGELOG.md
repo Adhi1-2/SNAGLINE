@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet.
 
 ### Fixed
+- `cusum_h` and `token_cusum_h` are now range-checked at construction and after
+  env/file layering, like the horizon, stagnation and token-budget knobs. Both
+  are the denominator of their detector's risk score: a value of `0` divided
+  by zero the first time the CUSUM alarmed, and because `Monitor.ingest` is
+  fail-open the exception was swallowed and the detector stayed dead for the
+  rest of the run while the host believed it was being watched; a negative
+  value alarmed on every step, since `cusum` is clamped to `>= 0`, so healthy
+  traffic paged constantly. A non-positive value is now a configuration error
+  naming the knob (#331).
 - `episode_token_budget` and `token_budget_warn_fraction` are now range-checked
   at construction and after env/file layering, like the horizon and stagnation
   knobs. A zero or negative budget used to fire a score-1.0 `budget_breach` on

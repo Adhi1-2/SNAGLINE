@@ -191,6 +191,13 @@ class LatencyAnomalyDetector:
         self._states_lock = threading.Lock()
         # Periodic baseline re-fit (issue #92); 0 disables (the default).
         self.refit_every = cfg.cusum_refit_every
+        # Mirrors Config._validated_cusum_bars (issue #331): direct construction
+        # with an explicit h skips the Config check, hence the duplicate guard.
+        # h is the score's denominator, so h == 0 divides by zero the first time
+        # the CUSUM alarms -- fail-open then leaves the detector dead for the
+        # run -- and h < 0 alarms on every step, since cusum is clamped to >= 0.
+        if self.h <= 0.0:
+            raise ValueError(f"cusum_h must be > 0.0; got {self.h!r}")
 
     def observe(self, event: StepEvent) -> FailureRisk | None:
         if event.latency_ms is None:

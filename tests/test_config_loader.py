@@ -409,3 +409,46 @@ def test_token_runaway_envelope_out_of_range_aborts_startup():
     assert cfg.episode_token_budget == 1000
     assert cfg.token_budget_warn_fraction == 0.8
     assert Config(token_runaway_enabled=True).episode_token_budget is None
+
+
+def test_cusum_alarm_bar_out_of_range_aborts_startup():
+    """Issue #331: the CUSUM alarm bars are the denominators of their
+    detectors' risk scores, and both out-of-range values fail silently in a
+    way fail-open hides -- h == 0 divides by zero the first time the CUSUM
+    alarms (the exception is swallowed and the detector is then dead for the
+    whole run), and h < 0 alarms on every step because cusum is clamped to
+    >= 0, so healthy traffic pages constantly. Same contract as #132/#317:
+    invalid monitoring config aborts loudly, naming the knob."""
+    for value in (0.0, -5.0):
+        with pytest.raises(ValueError, match="cusum_h"):
+            Config(cusum_h=value)
+        with pytest.raises(ValueError, match="token_cusum_h"):
+            Config(token_cusum_h=value)
+
+    # Env layering bypasses __post_init__ via setattr, so resolve() must
+    # re-check too -- a typo'd SNAGLINE_CUSUM_H=0 must not kill the detector.
+    with pytest.raises(ValueError, match="cusum_h"):
+        Config.resolve(environ={"SNAGLINE_CUSUM_H": "0"})
+    with pytest.raises(ValueError, match="token_cusum_h"):
+        Config.resolve(environ={"SNAGLINE_TOKEN_CUSUM_H": "-1"})
+
+    # The bars are multiples of sigma, so a large h is a legitimate "make this
+    # detector insensitive", not a defect -- no upper bound applies.
+    assert Config(cusum_h=1000.0).cusum_h == 1000.0
+    assert Config(token_cusum_h=1000.0).token_cusum_h == 1000.0
+    # Defaults stay valid through every layer.
+    assert Config.resolve(environ={}).cusum_h == 5.0
+    assert Config.resolve(environ={}).token_cusum_h == 5.0
+
+    # Direct construction with explicit kwargs skips the Config check, so the
+    # detectors repeat the guard as defense in depth (the #317 precedent).
+    from snagline.detectors.latency_anomaly import LatencyAnomalyDetector
+    from snagline.detectors.token_runaway import TokenRunawayDetector
+
+    with pytest.raises(ValueError, match="cusum_h"):
+        LatencyAnomalyDetector(h=0.0)
+    with pytest.raises(ValueError, match="token_cusum_h"):
+        TokenRunawayDetector(h=-1.0)
+    # An explicit valid h is still accepted.
+    assert LatencyAnomalyDetector(h=3.0).h == 3.0
+    assert TokenRunawayDetector(h=3.0).h == 3.0
