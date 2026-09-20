@@ -418,3 +418,22 @@ def test_restore_replaces_the_time_axis_like_everything_else() -> None:
         f"orphan clock survives restore: {m._clocks['A'].elapsed}s spent"
     )
     assert "B" in m._clocks
+
+
+def test_restore_clears_clocks_even_when_time_axis_is_omitted() -> None:
+    """A format-version-1 payload may legally omit "time_axis" (a snapshot
+    written before the horizon knobs existed, or a hand-built one). The
+    replacement must still hold: leaving the old clocks behind would let an
+    episode resume with budget already spent and its warning latch set while
+    every detector treats it as brand new.
+    """
+    sink = CapturingSink()
+    m = _monitor(sink, max_episode_wall_seconds=100.0, warn_fraction=0.8)
+    _feed(m, _event("a1", 0.0, "A"), _event("a2", 95.0, "A"))
+    m.restore_dict(
+        {"format_version": 1, "detectors": {}, "sinks": {}, "live_episodes": []}
+    )
+    assert not m._clocks, (
+        f"orphan clock survives a time_axis-less restore: "
+        f"{ {k: v.elapsed for k, v in m._clocks.items()} }"
+    )

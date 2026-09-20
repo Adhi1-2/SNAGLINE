@@ -935,14 +935,17 @@ class Monitor:
             if callable(load) and dumped_sinks.get(key) is not None:
                 load(dumped_sinks[key])
         time_axis_data = data.get("time_axis")
+        # Replace, do not merge: every detector's state was just rebuilt
+        # wholesale and _live_episodes is cleared below, so a clock left over
+        # from an episode the snapshot does not carry is orphaned -- that
+        # episode would resume with stale elapsed/warned while every detector
+        # treats it as brand new. The clear runs regardless of payload shape:
+        # a format-version-1 snapshot may legally omit "time_axis" entirely,
+        # and leaving the old clocks behind then would defeat the replacement
+        # for every such payload.
+        with self._clocks_lock:
+            self._clocks.clear()
         if isinstance(time_axis_data, dict):
-            # Replace, do not merge: every detector's state was just rebuilt
-            # wholesale and _live_episodes was cleared below, so a clock left
-            # over from an episode the snapshot does not carry is orphaned --
-            # that episode would resume with stale elapsed/warned while every
-            # detector treats it as brand new.
-            with self._clocks_lock:
-                self._clocks.clear()
             for episode_id, clock_data in time_axis_data.items():
                 if not isinstance(episode_id, str) or not isinstance(clock_data, dict):
                     continue
