@@ -177,20 +177,27 @@ class ErrorCascadeDetector:
 
     def load_state(self, state: dict[str, Any]) -> None:
         counts = state.get("counts", {})
-        self._windows = {
-            ep: deque(
+        windows = state.get("windows", {})
+        # Tolerant .get(): pre-#92 snapshots carry no scaler positions, so
+        # each episode's position is inferred from the window it shipped.
+        # The inferred value must seed _counts too, not merely size the
+        # deque -- observe() reads _counts.get(ep, 0), so an episode left
+        # absent restarts the scaler at the base and the first post-restore
+        # observe refits the deque down, discarding the history that was
+        # just restored (issue #403).
+        self._windows = {}
+        self._counts = {}
+        for ep, flags in windows.items():
+            n = int(counts.get(ep, len(flags)))
+            self._windows[ep] = deque(
                 flags,
                 maxlen=effective_window_size(
-                    self.window_size,
-                    int(counts.get(ep, len(flags))),
-                    self._scale_steps,
-                    self._max_window,
+                    self.window_size, n, self._scale_steps, self._max_window
                 ),
             )
-            for ep, flags in state.get("windows", {}).items()
-        }
-        # Tolerant .get(): pre-#92 snapshots carry no scaler positions.
-        self._counts = {ep: int(n) for ep, n in state.get("counts", {}).items()}
+            self._counts[ep] = n
+        for ep, n in counts.items():
+            self._counts.setdefault(ep, int(n))
         self._consecutive = {
             ep: int(v) for ep, v in state.get("consecutive", {}).items()
         }
