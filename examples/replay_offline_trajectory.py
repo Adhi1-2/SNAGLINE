@@ -11,9 +11,11 @@ Run:
 
 from __future__ import annotations
 
+import argparse
 import dataclasses
 import json
 import os
+import sys
 import tempfile
 
 from snagline.cli import replay
@@ -54,6 +56,14 @@ def _build_trajectory() -> list[StepEvent]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0].split(":", 1)[-1].strip(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="This demo is parameterless; it builds its own synthetic "
+        "trajectory and replays it.",
+    )
+    parser.parse_args()  # --help / -h prints usage and exits
+
     events = _build_trajectory()
     path = os.path.join(tempfile.gettempdir(), "snagline_demo_trajectory.jsonl")
     with open(path, "w") as f:

@@ -42,7 +42,7 @@ import hashlib
 import re
 from collections import deque
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 from snagline.config import Config
 from snagline.detectors.base import snapshot_items
@@ -51,12 +51,12 @@ from snagline.events import StepEvent
 from snagline.risk import FailureRisk, TriggerType
 
 # Triggers added by the hardening modes (issue #89). These strings are API:
-# downstream policy layers map them by name. They are declared here because
-# widening the TriggerType literal in risk.py belongs to a change scoped to
-# that module; the cast keeps mypy exact while the runtime value is a str.
-TRIGGER_NEAR_DUPLICATE_LOOP = cast(TriggerType, "near_duplicate_loop")
-TRIGGER_CYCLE = cast(TriggerType, "cycle")
-TRIGGER_STALL = cast(TriggerType, "stall")
+# downstream policy layers map them by name. They live in the TriggerType
+# literal in risk.py alongside the loop-hardening and side-effect-guard
+# groups (issue #304).
+TRIGGER_NEAR_DUPLICATE_LOOP: TriggerType = "near_duplicate_loop"
+TRIGGER_CYCLE: TriggerType = "cycle"
+TRIGGER_STALL: TriggerType = "stall"
 
 _UUID_LIKE_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"

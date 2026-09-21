@@ -19,8 +19,8 @@ vector of floats inside the baseline profile.
 
 Dependency discipline (section 1.1): this module imports cleanly with no
 third-party packages installed. ``sentence_transformers`` is imported only
-inside :meth:`SemanticGoalDriftDetector._default_model_loader`, lazily, on
-first use, and only when no explicit ``embedder`` was injected. Every
+inside :meth:`SemanticGoalDriftDetector._make_default_model_loader`, lazily,
+on first use, and only when no explicit ``embedder`` was injected. Every
 failure on that path (extra missing, model download/load failing) or during
 inference is caught, logged once, and leaves the detector permanently inert:
 monitoring must never crash or stall the host agent (section 1.2).

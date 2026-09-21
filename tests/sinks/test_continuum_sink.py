@@ -145,6 +145,12 @@ def test_real_actionledger_flags_review() -> None:
             run_id: str,
             type: Any = None,
             payload: Any = None,
+            # Keyword-only parameters the real Storage signature has grown
+            # (causer_event_id / expected_sequence / source ...). ActionLedger
+            # passes these by name, so accept and ignore them: this double only
+            # tracks what the assertions below need. **kwargs keeps the double
+            # resilient to CONTINUUM adding yet another one (issue #296).
+            **kwargs: Any,
         ) -> Any:
             event = events_mod.Event(
                 run_id=run_id,

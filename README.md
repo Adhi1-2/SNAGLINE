@@ -373,14 +373,14 @@ Run `snagline bench` to reproduce the overhead number on your hardware.
 
 ### Fixture-Based Detection Accuracy
 
-Four hand-built trajectory files under `tests/fixtures/trajectories/` serve as ground truth:
+Five hand-built trajectory files under `tests/fixtures/trajectories/` serve as ground truth:
 
 ```bash
 snagline replay tests/fixtures/trajectories/injected_loop.jsonl --summary
-# replayed 24 steps; 2 risk(s) emitted   -> 2 loop FailureRisk lines
+# replayed 24 steps; 1 risk(s) emitted   -> 1 loop FailureRisk line
 
 snagline replay tests/fixtures/trajectories/injected_error_cascade.jsonl --summary
-# replayed 24 steps; 2 risk(s) emitted   -> 2 error_cascade FailureRisk lines
+# replayed 24 steps; 1 risk(s) emitted   -> 1 error_cascade FailureRisk line
 
 snagline replay tests/fixtures/trajectories/injected_latency_spike.jsonl --summary
 # replayed 52 steps; 12 risk(s) emitted  -> 12 latency_anomaly FailureRisk lines
@@ -388,6 +388,13 @@ snagline replay tests/fixtures/trajectories/injected_latency_spike.jsonl --summa
 snagline replay tests/fixtures/trajectories/healthy_run.jsonl --summary
 # replayed 24 steps; 0 risk(s) emitted   -> no false positives
 ```
+
+The fifth fixture, `injected_governance_decay.jsonl`, exercises the
+`governance_decay` detector (a short 6-step run with one compaction that
+drops a constraint). It replays the same way --
+`snagline replay tests/fixtures/trajectories/injected_governance_decay.jsonl --summary`
+-- but its episode is deliberately too short to be a meaningful accuracy
+sample, so it is not quoted above.
 
 ### Detection Accuracy Harness
 

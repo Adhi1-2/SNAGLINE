@@ -73,9 +73,17 @@ def test_wrap_client_records_error_and_propagates():
     assert mon.events[0].error is True
 
 
-def test_instrument_openai_without_sdk_is_safe_noop():
+def test_instrument_openai_without_sdk_is_safe_noop(monkeypatch, caplog):
+    # The SDK-absent branch only runs when the module-level import failed, so
+    # force it regardless of whether openai happens to be installed in this
+    # venv (issue #295) -- otherwise this test silently exercises the
+    # "SDK installed" path the explicit-client test below already covers.
+    monkeypatch.setattr("snagline.auto.openai.OpenAI", None)
+    monkeypatch.setattr("snagline.auto.openai.AsyncOpenAI", None)
     mon = _SpyMonitor()
-    assert instrument_openai(mon) is False
+    with caplog.at_level("WARNING"):
+        assert instrument_openai(mon) is False
+    assert "nothing to patch" in caplog.text
 
 
 def test_instrument_openai_with_explicit_client():
