@@ -477,7 +477,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument(
         "--list-versions",
         action="store_true",
-        help="With --store-dir: list stored versions and exit (ignores fitting).",
+        help="List stored versions and exit 0 without fitting, writing, or "
+        "retraining (read-only; requires --store-dir, works on both the fit "
+        "and 'retrain' forms).",
     )
     sp.add_argument(
         "--max-versions",
@@ -800,6 +802,23 @@ def _cmd_baseline_retrain(args: argparse.Namespace) -> int:
     return 0
 
 
+def _list_stored_versions(store, tenant: str, deployment: str) -> int:
+    """Print the stored baseline versions and exit 0.
+
+    Read-only by construction: it never fits, writes a file, or bumps the
+    store, so ``--list-versions`` cannot have a write side effect. An empty
+    store still exits 0 with a plain "no stored versions" line.
+    """
+    versions = store.list_versions(tenant, deployment)
+    if not versions:
+        print(f"snagline baseline: no stored versions for {tenant}/{deployment}")
+        return 0
+    print(f"snagline baseline: versions for {tenant}/{deployment}:")
+    for v in versions:
+        print(f"  {v}")
+    return 0
+
+
 def _cmd_baseline(args: argparse.Namespace) -> int:
     """Fit a healthy-run baseline from a trajectory and persist it.
 
@@ -810,6 +829,22 @@ def _cmd_baseline(args: argparse.Namespace) -> int:
     The literal keyword ``retrain`` instead of a trajectory path dispatches to
     the scheduled-retrain contract (issue #102).
     """
+    # --list-versions is read-only wherever it is accepted: honour it before
+    # any fitting, writing, or retraining, on both the fit and retrain paths
+    # (issue #293). Without a store there is nothing to list from, so fail
+    # closed rather than silently performing the write the flag suppresses.
+    if getattr(args, "list_versions", False):
+        if not args.store_dir:
+            print(
+                "snagline baseline: --list-versions requires --store-dir",
+                file=sys.stderr,
+            )
+            return 2
+        from snagline.baseline_store import BaselineStore
+
+        store = BaselineStore(args.store_dir, max_versions=args.max_versions or 10)
+        return _list_stored_versions(store, args.tenant, args.deployment)
+
     if getattr(args, "trajectory", None) == "retrain":
         return _cmd_baseline_retrain(args)
 
@@ -820,18 +855,6 @@ def _cmd_baseline(args: argparse.Namespace) -> int:
         )
 
         store = BaselineStore(args.store_dir, max_versions=args.max_versions or 10)
-        if args.list_versions:
-            versions = store.list_versions(args.tenant, args.deployment)
-            if not versions:
-                print(
-                    f"snagline baseline: no stored versions for "
-                    f"{args.tenant}/{args.deployment}"
-                )
-                return 0
-            print(f"snagline baseline: versions for {args.tenant}/{args.deployment}:")
-            for v in versions:
-                print(f"  {v}")
-            return 0
         if getattr(args, "semantic", False):
             semantic_model = getattr(args, "semantic_model", "all-MiniLM-L6-v2")
             try:

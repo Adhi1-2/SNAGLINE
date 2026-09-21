@@ -320,6 +320,43 @@ def test_cli_retrain_usage_and_input_errors(tmp_path, capsys):
     assert "cannot read" in combined
 
 
+def test_cli_retrain_list_versions_does_not_store(tmp_path, capsys):
+    # --list-versions on the retrain form lists and exits 0; it must not
+    # retrain, i.e. not store a new version (issue #293).
+    store_dir = tmp_path / "store"
+    win = _window(tmp_path / "w.jsonl", "search", [100.0, 102.0, 104.0])
+
+    store = BaselineStore(str(store_dir))
+    seeded = capture_from_jsonl(store, win)
+
+    rc = main(
+        [
+            "baseline",
+            "retrain",
+            "--store-dir",
+            str(store_dir),
+            "--jsonl",
+            win,
+            "--list-versions",
+        ]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert seeded in out
+    # No retrain happened: the version set is unchanged.
+    assert store.list_versions() == [seeded]
+
+
+def test_cli_retrain_list_versions_without_store_dir_fails_closed(tmp_path, capsys):
+    # Read-only flag with no store: usage error, not a retrain.
+    win = _window(tmp_path / "w.jsonl", "search", [100.0, 102.0, 104.0])
+
+    rc = main(["baseline", "retrain", "--jsonl", win, "--list-versions"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--list-versions requires --store-dir" in err
+
+
 def test_active_baseline_age_skips_non_numeric_ids(tmp_path):
     store = BaselineStore(str(tmp_path / "store"))
     profile = BaselineProfileStub()
