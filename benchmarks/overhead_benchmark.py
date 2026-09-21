@@ -12,15 +12,36 @@ or via the CLI::
 
 The number is reported (median and p99) so it can be published in the README
 rather than asserted. This script is stdlib-only; it imports ``snagline``.
+
+Two legs are reported. The **default** leg uses the shipped defaults and is the
+number the README quotes. The **scaled** legs turn on window auto-scaling
+(issue #92) with a large ``max_window``, because that is the path scaling was
+built for -- and, before issue #298, the path where the loop and error-cascade
+detectors silently degraded from O(1) to O(window) per step by rescanning the
+window instead of keeping a running count. A scaled leg that climbs with
+``max_window`` while the default leg stays flat is exactly that regression
+class, and it is invisible to the default leg alone.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import statistics
 import time
 
 from snagline import Monitor
+from snagline.config import Config
 from snagline.events import StepEvent, make_signature
+
+# Scaled-leg knobs. The effective window is ``base * ceil(n / scale_steps)``
+# capped at ``max_window``, and each detector has its own base (loop 12,
+# cascade 10), so the slower-growing one sets the floor. scale_steps is small
+# enough that every leg saturates at its cap well inside the run: with 250 and
+# n=200_000, each max_window is reached by ~60k steps, so the remaining blocks
+# measure *sustained* O(window) cost rather than the growth phase -- which is
+# the only thing this leg exists to catch.
+_SCALED_STEPS = 250
+_SCALED_MAX_WINDOWS = (512, 2048)
 
 
 def _make_events(n: int) -> list[StepEvent]:
@@ -44,15 +65,16 @@ def _make_events(n: int) -> list[StepEvent]:
     return events
 
 
-def run_benchmark(n: int = 200_000, block: int = 2_000) -> dict:
-    """Time ``ingest()`` in blocks, returning median/p99 microseconds per step."""
-    monitor = Monitor.default()
-    events = _make_events(n)
+def _time_ingest(
+    monitor: Monitor, events: list[StepEvent], n: int, block: int
+) -> tuple[float, float]:
+    """Median and p99 microseconds per ingest() over the measured blocks.
 
-    # Warm-up: let any lazy one-time costs settle before measuring.
+    The first ``block`` steps are a warm-up, swallowed before timing, so lazy
+    one-time costs do not land in the numbers.
+    """
     for e in events[:block]:
         monitor.ingest(e)
-
     per_step_us: list[float] = []
     for start in range(block, n, block):
         chunk = events[start : start + block]
@@ -61,15 +83,60 @@ def run_benchmark(n: int = 200_000, block: int = 2_000) -> dict:
             monitor.ingest(e)
         t1 = time.perf_counter()
         per_step_us.append((t1 - t0) / len(chunk) * 1e6)
-
     ordered = sorted(per_step_us)
     p99_idx = min(len(ordered) - 1, int(0.99 * len(ordered)))
-    return {
+    return statistics.median(per_step_us), ordered[p99_idx]
+
+
+def run_benchmark(
+    n: int = 200_000,
+    block: int = 2_000,
+    *,
+    scale_steps: int = _SCALED_STEPS,
+    max_windows: tuple[int, ...] = _SCALED_MAX_WINDOWS,
+) -> dict:
+    """Time ``ingest()`` in blocks, returning median/p99 microseconds per step.
+
+    The default leg keeps the top-level ``median_us`` / ``p99_us`` keys the CLI
+    and README quote; the scaled legs land under ``scaled`` (issue #298).
+    """
+    events = _make_events(n)
+    blocks = len(range(block, n, block))
+
+    # One resolved config for every leg. ``Monitor.default()`` resolves the
+    # SNAGLINE_* env layering while a bare ``Config()`` pins every knob to its
+    # dataclass default, so mixing the two compares detector setups that differ
+    # in more than scaling (an operator with SNAGLINE_LOOP_WINDOW_SIZE set would
+    # measure a different base window per leg). Deriving each leg from one base
+    # and overriding only the two scaling knobs isolates the rescanning cost.
+    base_cfg = Config.resolve()
+
+    median_us, p99_us = _time_ingest(Monitor.default(base_cfg), events, n, block)
+    stats: dict = {
         "n": n,
-        "blocks": len(per_step_us),
-        "median_us": statistics.median(per_step_us),
-        "p99_us": ordered[p99_idx],
+        "blocks": blocks,
+        "median_us": median_us,
+        "p99_us": p99_us,
+        "scaled": [],
     }
+
+    # Same event stream, scaling on: any gap from the default leg is the
+    # rescanning cost, not detector tuning or a different workload.
+    for cap in max_windows:
+        monitor = Monitor.default(
+            dataclasses.replace(
+                base_cfg, window_scale_steps=scale_steps, max_window=cap
+            )
+        )
+        median_us, p99_us = _time_ingest(monitor, events, n, block)
+        stats["scaled"].append(
+            {
+                "max_window": cap,
+                "median_us": median_us,
+                "p99_us": p99_us,
+            }
+        )
+    return stats
 
 
 def main() -> None:
@@ -78,6 +145,12 @@ def main() -> None:
     print(f"  steps measured : {stats['n']}")
     print(f"  median        : {stats['median_us']:.2f} us/step")
     print(f"  p99           : {stats['p99_us']:.2f} us/step")
+    for leg in stats["scaled"]:
+        print(
+            f"  scaled max_window={leg['max_window']:<5d}: "
+            f"median {leg['median_us']:.2f} us/step, "
+            f"p99 {leg['p99_us']:.2f} us/step"
+        )
 
 
 if __name__ == "__main__":

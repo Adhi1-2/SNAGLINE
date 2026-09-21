@@ -30,6 +30,18 @@ from snagline.monitor import Monitor
 from snagline.risk import FailureRisk
 from snagline.sinks.base import AlertSink
 
+# Scaled benchmark-leg knobs, mirrored from
+# ``benchmarks.overhead_benchmark`` (which is not importable from an installed
+# wheel, hence the fallback below). The effective window is
+# ``base * ceil(n / scale_steps)`` capped at ``max_window``, and each detector
+# has its own base (loop 12, cascade 10), so the slower-growing one sets the
+# floor. scale_steps is small enough that every leg saturates at its cap well
+# inside the run: with 250 and n=200_000, each max_window is reached by ~60k
+# steps, so the remaining blocks measure *sustained* O(window) cost rather
+# than the growth phase -- which is the only thing this leg exists to catch.
+_BENCH_SCALED_STEPS = 250
+_BENCH_SCALED_MAX_WINDOWS = (512, 2048)
+
 
 class _CountingSink:
     """Internal sink used by the CLI to report how many risks fired."""
@@ -1124,21 +1136,43 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _inline_benchmark(n: int = 200_000, block: int = 2_000) -> dict:
+def _inline_benchmark(
+    n: int = 200_000,
+    block: int = 2_000,
+    *,
+    scale_steps: int = _BENCH_SCALED_STEPS,
+    max_windows: tuple[int, ...] = _BENCH_SCALED_MAX_WINDOWS,
+) -> dict:
     """Fallback benchmark used when ``benchmarks.overhead_benchmark`` is not
     importable. ``benchmarks/`` lives at the repository root, outside the
     ``[tool.setuptools.packages.find] where = ["src"]`` scope, so it is never
     shipped in a wheel and this fallback is what an installed copy of
     snagline runs; a source checkout imports the real module instead (see the
     call site below). Mirrors the shape of
-    ``benchmarks.overhead_benchmark.run_benchmark`` so the CLI output is
-    identical either way (issue #6)."""
+    ``benchmarks.overhead_benchmark.run_benchmark`` -- signature
+    included -- so the CLI output is identical either way (issue #6),
+    including the scaled legs (issue #298)."""
     import statistics
 
     from snagline import Monitor
+    from snagline.config import Config
     from snagline.events import StepEvent, make_signature
 
-    monitor = Monitor.default()
+    def time_ingest(monitor: Monitor) -> tuple[float, float]:
+        for e in events[:block]:
+            monitor.ingest(e)
+        per_step_us: list[float] = []
+        for start in range(block, n, block):
+            chunk = events[start : start + block]
+            t0 = time.perf_counter()
+            for e in chunk:
+                monitor.ingest(e)
+            t1 = time.perf_counter()
+            per_step_us.append((t1 - t0) / len(chunk) * 1e6)
+        ordered = sorted(per_step_us)
+        p99_idx = min(len(ordered) - 1, int(0.99 * len(ordered)))
+        return statistics.median(per_step_us), ordered[p99_idx]
+
     events = [
         StepEvent(
             step_id=str(i),
@@ -1151,24 +1185,30 @@ def _inline_benchmark(n: int = 200_000, block: int = 2_000) -> dict:
         )
         for i in range(n)
     ]
-    for e in events[:block]:
-        monitor.ingest(e)
-    per_step_us: list[float] = []
-    for start in range(block, n, block):
-        chunk = events[start : start + block]
-        t0 = time.perf_counter()
-        for e in chunk:
-            monitor.ingest(e)
-        t1 = time.perf_counter()
-        per_step_us.append((t1 - t0) / len(chunk) * 1e6)
-    ordered = sorted(per_step_us)
-    p99_idx = min(len(ordered) - 1, int(0.99 * len(ordered)))
-    return {
+    # One resolved config for every leg, matching run_benchmark(): a bare
+    # Config() pins every knob to its dataclass default while Monitor.default()
+    # resolves the SNAGLINE_* env layering, so mixing the two would compare
+    # detector setups that differ in more than scaling.
+    base_cfg = Config.resolve()
+    median_us, p99_us = time_ingest(Monitor.default(base_cfg))
+    stats: dict = {
         "n": n,
-        "blocks": len(per_step_us),
-        "median_us": statistics.median(per_step_us),
-        "p99_us": ordered[p99_idx],
+        "blocks": len(range(block, n, block)),
+        "median_us": median_us,
+        "p99_us": p99_us,
+        "scaled": [],
     }
+    for cap in max_windows:
+        monitor = Monitor.default(
+            dataclasses.replace(
+                base_cfg, window_scale_steps=scale_steps, max_window=cap
+            )
+        )
+        median_us, p99_us = time_ingest(monitor)
+        stats["scaled"].append(
+            {"max_window": cap, "median_us": median_us, "p99_us": p99_us}
+        )
+    return stats
 
 
 def _cmd_bench() -> int:
@@ -1184,6 +1224,12 @@ def _cmd_bench() -> int:
     print(f"  steps measured : {stats['n']}")
     print(f"  median        : {stats['median_us']:.2f} us/step")
     print(f"  p99           : {stats['p99_us']:.2f} us/step")
+    for leg in stats.get("scaled", []):
+        print(
+            f"  scaled max_window={leg['max_window']:<5d}: "
+            f"median {leg['median_us']:.2f} us/step, "
+            f"p99 {leg['p99_us']:.2f} us/step"
+        )
     return 0
 
 
