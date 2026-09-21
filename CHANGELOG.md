@@ -71,6 +71,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `HTTPError` for the `3xx`, which is logged fail-open as any other delivery
   failure is; a `307`/`308` already raised, so the failure mode is now consistent
   across redirect codes instead of silent for exactly the common ones (#389).
+- The halt webhook and `snagline hook --url` no longer hold the caller past
+  their configured budget. Both used bare `urllib.request.urlopen`, whose
+  `timeout=` is applied per socket operation and only after name resolution,
+  so a stalled resolver or a body trickled one byte per interval just under
+  the timeout parked the exchange far past the configured `halt_timeout_s`
+  with no `policy_error` ever counted, because nothing ever raised. For the
+  halt webhook this is the enforcement policy, called synchronously from
+  `ingest()`, so the stall was the host agent's own step while the operator's
+  budget read 250 ms. Both call sites now go through the shared `bounded_post`
+  in `sinks/base.py`, which bounds the whole exchange by a wall-clock deadline
+  and raises `TimeoutError` on overrun -- counted as a `policy_error` and left
+  fail-open, as any other halt failure already was (#415).
+- The halt webhook no longer follows a redirect. `urllib` rewrites a
+  `301`/`302`/`303` POST into a bodyless GET to the `Location` URL and hands
+  the final `2xx` back, and the halt path parses that reply into a
+  `HaltDirective` -- so a redirect let the enforcement decision arrive from a
+  server the operator never configured, on a round trip that looked
+  successful. An auth redirect from an expired credential, which would
+  otherwise have shown as a `401`, became a silent misrouting instead. The
+  `snagline hook --url` forward had the same shape, leaking the step event to
+  the redirect target. Both now POST through the opener carrying the
+  `_NoRedirect` handler added for the sinks (#389), which raises `HTTPError`
+  for the `3xx` and logs fail-open (#416).
+- The halt webhook and `snagline hook --url` no longer log the destination URL
+  when the POST fails. The halt URL can carry basic auth (`user:pass@host`)
+  and the failure line is what an operator reads when enforcement stops
+  working. Both now log only scheme + host + port via `redacted_destination`,
+  matching the network sinks. The `snagline serve` startup banner is redacted
+  too, since it prints the same URL to stderr, which a process supervisor
+  captures and keeps after the process is gone (#390).
 
 ## [0.1.0] - 2026-08-27
 
