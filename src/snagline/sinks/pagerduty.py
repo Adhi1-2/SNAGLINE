@@ -4,7 +4,9 @@ Zero dependency (stdlib ``urllib.request``). Posts a ``trigger`` event with a
 mapped severity so on-call gets paged. Optional ``min_severity`` filter. The
 ``timeout`` is a wall-clock deadline on the whole POST (see
 ``bounded_post``), not just a per-socket-operation hint, so a stuck endpoint
-pages nothing but also stalls nothing.
+pages nothing but also stalls nothing. Redirects are refused rather than
+followed, so an auth redirect from an expired routing key surfaces as a logged
+failure instead of a silent success (issue #389).
 
 Privacy: only ``FailureRisk`` fields are transmitted, never raw content
 (project.md §11).

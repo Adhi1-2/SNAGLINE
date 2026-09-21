@@ -59,6 +59,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bounded_post` in `sinks/base.py`, which raises `TimeoutError` when the
   deadline passes and abandons the in-flight request on a daemon thread; the
   sinks log it fail-open as before (#395).
+- The network sinks no longer follow a redirect. `urllib` honours a
+  `301`/`302`/`303` by re-issuing the request to the `Location` URL as a GET
+  with no body, and hands the final `2xx` back to the caller, so a sink that hit
+  a redirect reported a successful delivery while its payload travelled with the
+  POST the server rejected and went to a destination the server chose. That is
+  reachable without a misconfigured destination -- a trailing-slash hop, an
+  HTTP->HTTPS or proxy canonicalisation, or, worst, an auth redirect from an
+  expired credential that would otherwise have shown as a `401`. All three sinks
+  now POST through an opener whose `_NoRedirect` handler makes urllib raise
+  `HTTPError` for the `3xx`, which is logged fail-open as any other delivery
+  failure is; a `307`/`308` already raised, so the failure mode is now consistent
+  across redirect codes instead of silent for exactly the common ones (#389).
 
 ## [0.1.0] - 2026-08-27
 

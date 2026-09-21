@@ -4,7 +4,9 @@ Uses only stdlib ``urllib.request`` (project.md §8). Fire-and-forget with a
 short timeout: ``emit`` never raises and never blocks ``ingest()`` for long --
 the ``timeout`` is a wall-clock deadline on the whole POST, not just a
 per-socket-operation hint (see ``bounded_post``), so a slow resolver or a
-trickling server cannot stall the episode's ingest. The Monitor's fail-open
+trickling server cannot stall the episode's ingest. Redirects are refused
+rather than followed, so a misrouting endpoint surfaces as a logged failure
+instead of a silent success (issue #389). The Monitor's fail-open
 wrapper would swallow a raise anyway, but this sink keeps its own failure
 handling so a dead endpoint stays silent even when the Monitor runs with
 ``fail_open=False``.

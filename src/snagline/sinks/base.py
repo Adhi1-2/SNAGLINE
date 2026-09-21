@@ -16,6 +16,38 @@ from urllib.parse import urlsplit
 from snagline.risk import FailureRisk
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow a 3xx, so a redirect cannot silently drop the payload.
+
+    urllib honours a ``301``/``302``/``303`` by re-issuing the request to the
+    ``Location`` URL **as a GET with no body** (see
+    ``HTTPRedirectHandler.redirect_request``), and returns the final 2xx to the
+    caller. A sink that hits a redirect therefore reports a successful delivery
+    while its payload travelled with the POST the server rejected, and went to a
+    destination the server chose. A trailing-slash hop, an HTTP->HTTPS or proxy
+    canonicalisation, or -- worst -- an auth redirect from an expired
+    credential, all land here, and the last one turns a visible 401 into a
+    silent misrouting (issue #389).
+
+    Returning ``None`` makes ``http_error_30x`` give up, which falls through to
+    ``HTTPDefaultErrorHandler`` and raises ``HTTPError`` for the 3xx; the sinks
+    already log that fail-open. A ``307``/``308`` raises ``HTTPError`` already,
+    because urllib preserves the method for those and refuses to rewrite a POST
+    -- so this handler also makes the failure mode consistent across redirect
+    codes instead of silent for exactly the common ones.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+# One shared opener: handlers carry no per-request state, so this is safe across
+# the sink threads. Built rather than reusing the default opener so the policy
+# is ours and not whatever the host process installed globally; proxies are
+# still read from the environment by ``build_opener`` itself.
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
 class AlertSink(Protocol):
     """Protocol every sink (core or third-party) must satisfy."""
 
@@ -95,6 +127,10 @@ def bounded_post(request: urllib.request.Request, timeout: float) -> None:
     Bounding name resolution in pure stdlib would mean reimplementing the HTTP
     exchange by hand, which is far more new code to get wrong.
 
+    Redirects are refused rather than followed, for the same reason: a followed
+    3xx is reported as a 2xx delivery whose payload never arrived (see
+    ``_NoRedirect``).
+
     Raises whatever the exchange raised once that is known, or ``TimeoutError``
     if the deadline passed first. Callers catch and log.
     """
@@ -102,7 +138,7 @@ def bounded_post(request: urllib.request.Request, timeout: float) -> None:
 
     def _post() -> None:
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as resp:
+            with _opener.open(request, timeout=timeout) as resp:
                 resp.read()
         except Exception as exc:  # reported to the caller below
             outcome["error"] = exc
