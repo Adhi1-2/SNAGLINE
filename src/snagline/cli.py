@@ -1084,8 +1084,13 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     if cfg.policy == "halt_webhook":
+        # The halt URL can carry basic auth (``user:pass@host``), and a startup
+        # banner lands in whatever the supervisor captures -- journald, a
+        # container log, a redirected stderr -- which outlives the process
+        # (issue #390).
         print(
-            f"snagline serve: halt forwarding enabled -> {cfg.halt_url} "
+            f"snagline serve: halt forwarding enabled -> "
+            f"{redacted_destination(cfg.halt_url or '')} "
             f"(timeout {cfg.halt_timeout_s}s, min severity "
             f"{cfg.min_severity_for_halt}); directives land on "
             "Monitor.last_directive and are readable at GET /directive "
