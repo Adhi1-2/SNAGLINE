@@ -117,10 +117,13 @@ class ErrorCascadeDetector:
 
         self._fired[event.episode_id] = True
         if consecutive_alarm:
-            score = min(1.0, consecutive / self.consecutive_threshold)
+            # A 0 threshold is rejected by Config validation (issue #322);
+            # guard anyway, since Config is a plain mutable dataclass a host
+            # can reconfigure after construction.
+            score = min(1.0, consecutive / max(self.consecutive_threshold, 1))
             detail = f"{consecutive} consecutive errors"
         else:
-            score = min(1.0, sum(w) / self.error_threshold)
+            score = min(1.0, sum(w) / max(self.error_threshold, 1))
             detail = f"{sum(w)} errors in last {len(w)} steps"
         return FailureRisk(
             event.episode_id,

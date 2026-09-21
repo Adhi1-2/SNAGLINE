@@ -209,7 +209,7 @@ class LoopDetector:
         elif event.action_signature in fired:
             return None
         fired.add(event.action_signature)
-        score = min(1.0, count / self.repeat_threshold * 0.5)
+        score = min(1.0, count / max(self.repeat_threshold, 1) * 0.5)
         return FailureRisk(
             event.episode_id,
             event.step_id,
@@ -260,7 +260,7 @@ class LoopDetector:
         if fired is not None and key in fired:
             return None
         self._near_fired.setdefault(event.episode_id, set()).add(key)
-        score = min(1.0, count / self.repeat_threshold * 0.5)
+        score = min(1.0, count / max(self.repeat_threshold, 1) * 0.5)
         return FailureRisk(
             event.episode_id,
             event.step_id,
@@ -341,7 +341,7 @@ class LoopDetector:
             return None
         self._stall_fired[event.episode_id] = True
         elapsed = max(0.0, event.timestamp - self._stall_start[event.episode_id])
-        score = min(1.0, count / self.loop_stall_steps * 0.5)
+        score = min(1.0, count / max(self.loop_stall_steps, 1) * 0.5)
         return FailureRisk(
             event.episode_id,
             event.step_id,

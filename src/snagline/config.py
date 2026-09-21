@@ -225,6 +225,34 @@ def _validated_stagnation(cfg: Config) -> None:
         )
 
 
+def _validated_divisor_thresholds(cfg: Config) -> None:
+    """Validate the threshold knobs the detectors divide by (issue #322).
+
+    Four detectors compute a risk score by dividing a count by a threshold, so
+    a threshold of ``0`` raises ``ZeroDivisionError`` on the first step. The
+    fire conditions are ``>=`` comparisons, which ``0`` trivially satisfies, so
+    the detector reaches the division and dies; ``Monitor.ingest`` is fail-open,
+    so the exception is swallowed and the detector stays installed and dead for
+    the rest of the run -- the silently disabled safety net ``_validated_stagnation``
+    rejects ``min_novelty=0.0`` for. ``0`` is also the natural "disable this
+    detector" value a user reaches for, and it is accepted by every config layer.
+    """
+    knobs = (
+        ("cascade_consecutive_threshold", cfg.cascade_consecutive_threshold),
+        ("cascade_error_threshold", cfg.cascade_error_threshold),
+        ("loop_repeat_threshold", cfg.loop_repeat_threshold),
+        ("loop_stall_steps", cfg.loop_stall_steps),
+    )
+    for name, value in knobs:
+        if value < 1:
+            raise ValueError(
+                f"{name} must be >= 1; got {value!r}. A threshold of 0 makes the "
+                "fire condition trivially true and the score computation divides "
+                "by it, which raises ZeroDivisionError on the first step and "
+                "silently disables the detector for the rest of the run"
+            )
+
+
 @dataclass
 class Config:
     # Loop detector
@@ -516,6 +544,10 @@ class Config:
         # are valid too, so only a configured value can trip these checks.
         _validated_token_runaway(self)
         _validated_max_live_episodes(self)
+        # Issue #322: thresholds the detectors divide by; 0 raises
+        # ZeroDivisionError at ingest time and fail-open then silently disables
+        # the detector for the rest of the run.
+        _validated_divisor_thresholds(self)
 
     # --- 12-factor configuration (project.md §5.4, ATTACH_ANY_SYSTEM P0) -----
     @classmethod
@@ -627,4 +659,8 @@ class Config:
         # error, not page at critical severity on the first ingested step.
         _validated_token_runaway(cfg)
         _validated_max_live_episodes(cfg)
+        # Same re-validation for the divisor thresholds set from env/file
+        # (issue #322): SNAGLINE_LOOP_REPEAT_THRESHOLD=0 must abort startup
+        # with a clear error, not ZeroDivisionError inside the detector.
+        _validated_divisor_thresholds(cfg)
         return cfg

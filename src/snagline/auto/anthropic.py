@@ -318,18 +318,29 @@ def _wrap_one(monitor, original, tool_name):
 
 def wrap_client(monitor, client):
     """Wrap ``client.messages.create`` in place. Returns the same client."""
+    _patch_client(monitor, client)
+    return client
+
+
+def _patch_client(monitor, client) -> int:
+    """Counting core of :func:`wrap_client` (issue #321).
+
+    Returns the number of methods newly wrapped, so the instrument_*
+    entrypoints can honour their documented "True if anything was patched"
+    contract on the explicit-client path, not just the global one.
+    """
     cur = getattr(client, "messages", None)
     if cur is None:
         logger.warning(
             "snagline.auto: wrap_client found no messages resource on %r", client
         )
-        return client
+        return 0
     method = getattr(cur, "create", None)
     if method is None or not callable(method):
         logger.warning("snagline.auto: wrap_client found no create method on %r", cur)
-        return client
+        return 0
     cur.create = _wrap_one(monitor, method, "anthropic.messages.create")
-    return client
+    return 1
 
 
 def _patch_resource_classes(monitor) -> int:
@@ -384,8 +395,7 @@ def instrument_anthropic(monitor, client=None) -> bool:
     nothing could be patched.
     """
     if client is not None:
-        wrap_client(monitor, client)
-        return True
+        return _patch_client(monitor, client) != 0
     if Anthropic is None:
         logger.warning("snagline.auto: Anthropic SDK not installed; nothing to patch")
         return False
