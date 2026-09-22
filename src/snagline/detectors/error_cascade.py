@@ -185,19 +185,27 @@ class ErrorCascadeDetector:
         # absent restarts the scaler at the base and the first post-restore
         # observe refits the deque down, discarding the history that was
         # just restored (issue #403).
-        self._windows = {}
-        self._counts = {}
+        # The windows and counts are built into locals and published only once
+        # the whole snapshot has parsed: ``int()`` on a malformed count raises
+        # partway through, and assigning live attribute-by-attribute would
+        # leave the detector half-cleared -- some episodes restored, the rest
+        # silently dropped -- with its live state destroyed and nothing
+        # reporting the mismatch (review of #402).
+        new_windows: dict[str, deque] = {}
+        new_counts: dict[str, int] = {}
         for ep, flags in windows.items():
             n = int(counts.get(ep, len(flags)))
-            self._windows[ep] = deque(
+            new_windows[ep] = deque(
                 flags,
                 maxlen=effective_window_size(
                     self.window_size, n, self._scale_steps, self._max_window
                 ),
             )
-            self._counts[ep] = n
+            new_counts[ep] = n
         for ep, n in counts.items():
-            self._counts.setdefault(ep, int(n))
+            new_counts.setdefault(ep, int(n))
+        self._windows = new_windows
+        self._counts = new_counts
         self._consecutive = {
             ep: int(v) for ep, v in state.get("consecutive", {}).items()
         }
