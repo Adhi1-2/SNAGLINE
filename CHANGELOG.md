@@ -67,13 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SNAGLINE_DETECTORS_ENABLED=ture` turned every detector off with no
   signal.
 #### Detectors
-- `episode_token_budget` and `token_budget_warn_fraction` are now
-  range-checked at construction and after env/file layering, like the
-  horizon and stagnation knobs. A zero or negative budget used to fire a
-  score-1.0 `budget_breach` on the first token-bearing step, and a
-  `token_budget_warn_fraction` of `0.0` a score-0.8 warning; values above
-  `1.0` made the pre-breach warning unreachable. An out-of-range value is
-  now a configuration error naming the knob (#317).
 - `StagnationDetector.load_state` now restores the *effective* window for
   the restored scaler position, and the fill gate is now separate from the
   novelty gate under window scaling. The base-sized slice dropped exactly
