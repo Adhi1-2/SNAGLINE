@@ -294,17 +294,38 @@ class LoopDetector:
             w.append(key)
             count = w.count(key)
         fired = self._near_fired.get(event.episode_id)
+        if fired:
+            # Re-arm from the window, exactly as the plain path does: re-check
+            # *every* escalated key against the current window, not just the
+            # key observed this step. A key that fell below threshold while
+            # other actions were observed must re-arm so its next recurrence
+            # escalates again -- otherwise a loop that briefly clears and
+            # resumes is reported only once (and never at all when the raw
+            # signatures differ, which is the case this mode exists for).
+            fired_counts: Counter[str] | None = (
+                self._near_counts_map.get(event.episode_id)
+                if self._scale_steps > 0
+                else None
+            )
+            for sig in tuple(fired):
+                if sig == key:
+                    seen = count
+                elif fired_counts is not None:
+                    seen = fired_counts[sig]
+                else:
+                    seen = w.count(sig)
+                if seen < self.repeat_threshold:
+                    fired.discard(sig)
+            if not fired:
+                del self._near_fired[event.episode_id]
+                fired = None
         if count < self.repeat_threshold:
-            if fired is not None:
-                # The normalized variant dropped below threshold or aged out:
-                # re-arm so a later recurrence escalates again.
-                fired.discard(key)
-                if not fired:
-                    del self._near_fired[event.episode_id]
             return None
-        if fired is not None and key in fired:
+        if fired is None:
+            fired = self._near_fired.setdefault(event.episode_id, set())
+        elif key in fired:
             return None
-        self._near_fired.setdefault(event.episode_id, set()).add(key)
+        fired.add(key)
         score = min(1.0, count / max(self.repeat_threshold, 1) * 0.5)
         return FailureRisk(
             event.episode_id,

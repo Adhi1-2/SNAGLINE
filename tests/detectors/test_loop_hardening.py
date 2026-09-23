@@ -204,6 +204,35 @@ def test_normalizer_hook_is_replaceable():
     assert [r.trigger for _, r in fires] == ["near_duplicate_loop"]
 
 
+def test_near_duplicate_rearms_a_decayed_key_like_the_plain_path():
+    """A normalized key that fires, is pushed below threshold by *another*
+    action, then completes a second loop from the copies still in the window
+    must escalate again -- the same re-arm the plain path performs. Pre-fix,
+    the key was only re-armed when it was itself re-observed below threshold,
+    so this second loop was silently suppressed."""
+    d = LoopDetector(
+        window_size=4,
+        repeat_threshold=3,
+        config=Config(loop_near_duplicate_enabled=True),
+    )
+    # Normalized stream: get list get get list get  (i.e. a b a a b a).
+    # Raw signatures are all distinct (digit suffixes), so the plain path can
+    # never fire -- near-duplicate mode is the only detector in play.
+    sigs = [
+        "get_user:id=1",
+        "list_items:page=1",
+        "get_user:id=2",
+        "get_user:id=3",
+        "list_items:page=2",
+        "get_user:id=4",
+    ]
+    fires = _feed(d, sigs)
+    assert [(step, r.trigger) for step, r in fires] == [
+        (3, "near_duplicate_loop"),
+        (5, "near_duplicate_loop"),
+    ], f"the second loop must re-fire, got {fires}"
+
+
 # --- stall mode ---------------------------------------------------------------
 
 
