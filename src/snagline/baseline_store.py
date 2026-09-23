@@ -15,11 +15,28 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import IO
 
 from snagline.baseline import BaselineProfile, fit_baseline_from_jsonl
+
+# A version id becomes a filename (``<version>.json``), so it must not carry
+# a path separator or traversal component. Anything outside this set -- most
+# importantly ``/`` and ``\`` -- would let ``save(version=...)`` write outside
+# the store's versions directory (or crash mid-write when the nested parent
+# does not exist). The default id ``f"{time.time():.6f}"`` matches this set.
+_SAFE_VERSION = re.compile(r"\A[A-Za-z0-9._-]+\Z")
+
+
+def _validate_version(version: str) -> str:
+    if version in (".", "..") or not _SAFE_VERSION.match(version):
+        raise ValueError(
+            "baseline version id must match [A-Za-z0-9._-]+ and not be "
+            f"'.' or '..'; got {version!r} (it is used as an on-disk filename)"
+        )
+    return version
 
 
 def _write_json(stream: IO[str], data: dict) -> None:
@@ -75,7 +92,9 @@ class BaselineStore:
         beyond ``max_versions`` (this call, else the store default) are pruned
         oldest-first.
         """
-        version = version or f"{time.time():.6f}"
+        version = (
+            _validate_version(version) if version is not None else f"{time.time():.6f}"
+        )
         scope = self._scope_dir(tenant, deployment)
         versions_dir = scope / "versions"
         versions_dir.mkdir(parents=True, exist_ok=True)
@@ -90,17 +109,58 @@ class BaselineStore:
         _atomic_write_json(scope / "latest.json", profile.to_dict())
 
         limit = max_versions if max_versions is not None else self._max_versions
-        self._prune(tenant, deployment, limit)
+        self._prune(tenant, deployment, limit, keep=version)
         return version
 
-    def _prune(self, tenant: str, deployment: str, limit: int) -> None:
+    def _version_paths_by_write_time(self, versions_dir: Path) -> list[Path]:
+        """Version files oldest-first by write time.
+
+        Retention prunes the oldest *write*, but a lexicographic name sort only
+        matches write order for fixed-width ids like the default timestamp.
+        Custom ids ("9", "10", "11") sort "10" < "9", so a name sort would
+        prune the newest, and at ``max_versions=1`` delete the entry just
+        written. Sorting by ``st_mtime_ns`` orders by write time for any id
+        shape: an *integer* nanosecond stamp, so (unlike the float ``st_mtime``)
+        it does not lose sub-microsecond resolution at epoch scale, and distinct
+        writes stay distinguishable on every filesystem with sub-second mtime
+        granularity (all mainstream ones).
+
+        The ``name`` tiebreak only decides order for files sharing one mtime
+        tick -- possible on coarse-granularity filesystems (FAT, HFS+, ext3) --
+        and there it degrades to the lexicographic order this method exists to
+        avoid. That residual cannot mis-order the write just made, though:
+        ``_prune`` is told which version was just written and never deletes it
+        (so ``latest.json`` is never orphaned), and the default timestamp id is
+        unaffected regardless.
+        """
+        return sorted(
+            versions_dir.glob("*.json"),
+            key=lambda p: (p.stat().st_mtime_ns, p.name),
+        )
+
+    def _prune(
+        self, tenant: str, deployment: str, limit: int, keep: str | None = None
+    ) -> None:
+        """Delete oldest-written versions beyond ``limit``.
+
+        ``keep`` (the version just written) is never deleted, so even when a
+        coarse-mtime tiebreak mis-orders same-tick writes the newest version --
+        the one ``latest.json`` points at -- always survives.
+        """
         versions_dir = self._scope_dir(tenant, deployment) / "versions"
         if not versions_dir.exists():
             return
-        existing = sorted(p.name for p in versions_dir.glob("*.json"))
-        excess = existing[: max(0, len(existing) - limit)]
-        for name in excess:
-            (versions_dir / name).unlink(missing_ok=True)
+        existing = self._version_paths_by_write_time(versions_dir)
+        keep_name = f"{keep}.json" if keep is not None else None
+        to_delete = max(0, len(existing) - limit)
+        deleted = 0
+        for path in existing:
+            if deleted >= to_delete:
+                break
+            if path.name == keep_name:
+                continue
+            path.unlink(missing_ok=True)
+            deleted += 1
 
     # --- read ----------------------------------------------------------------
     def load(
@@ -126,7 +186,7 @@ class BaselineStore:
         versions_dir = self._scope_dir(tenant, deployment) / "versions"
         if not versions_dir.exists():
             return []
-        return sorted(p.name[:-5] for p in versions_dir.glob("*.json"))
+        return [p.name[:-5] for p in self._version_paths_by_write_time(versions_dir)]
 
 
 def capture_from_jsonl(

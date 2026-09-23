@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+
+import pytest
 
 from snagline.baseline import BaselineProfile
 from snagline.baseline_store import (
@@ -67,6 +70,65 @@ def test_store_prunes_old_versions(tmp_path):
     for _ in range(5):
         store.save(BaselineProfile(), tenant="t", deployment="d")
     assert len(store.list_versions("t", "d")) == 3
+
+
+def test_prune_and_list_order_by_write_time_not_name(tmp_path):
+    """Variable-width custom ids must prune oldest-*written* first.
+
+    Lexicographically ``"10" < "11" < "9"``, which disagrees with the write
+    order 9, 10, 11. A name sort would prune the wrong entry (and at
+    ``max_versions=1`` could delete the version just written). Pin the first
+    two writes to explicit, increasing, old mtimes so the pruning save has an
+    unambiguous oldest-first ordering.
+    """
+    root = tmp_path / "store"
+    store = BaselineStore(str(root), max_versions=2)
+    vdir = root / "t" / "d" / "versions"
+    store.save(BaselineProfile(), tenant="t", deployment="d", version="9")
+    os.utime(vdir / "9.json", (1000.0, 1000.0))
+    store.save(BaselineProfile(), tenant="t", deployment="d", version="10")
+    os.utime(vdir / "10.json", (1001.0, 1001.0))
+    store.save(BaselineProfile(), tenant="t", deployment="d", version="11")
+    # The oldest write ("9") is pruned, not the lexicographically smallest
+    # ("10"); the survivors stay in write order. Pre-fix (name sort) drops
+    # "10" and reports ["11", "9"].
+    assert store.list_versions("t", "d") == ["10", "11"]
+
+
+def test_prune_keeps_just_written_version_under_a_coarse_mtime_tie(tmp_path):
+    """On a coarse-granularity filesystem several saves can share one mtime
+    tick; the (mtime, name) sort then falls back to lexicographic name order,
+    under which a variable-width id ("11") is *not* the newest-sorting entry.
+    Pruning must still never delete the version just written -- otherwise the
+    rollback target vanishes and latest.json is orphaned.
+    """
+    root = tmp_path / "store"
+    store = BaselineStore(str(root), max_versions=10)  # no prune during setup
+    vdir = root / "t" / "d" / "versions"
+    for vid in ["9", "10", "11"]:
+        store.save(BaselineProfile(), tenant="t", deployment="d", version=vid)
+    # Collapse all three writes onto one mtime tick: the name tiebreak now
+    # orders them ["10", "11", "9"], so "11" (written last) sorts in the middle.
+    tie = 1_700_000_000_000_000_000
+    for vid in ["9", "10", "11"]:
+        os.utime(vdir / f"{vid}.json", ns=(tie, tie))
+    store._prune("t", "d", limit=1, keep="11")
+    # The just-written version survives and still loads; latest.json (a full
+    # copy) therefore stays consistent with the history.
+    assert store.list_versions("t", "d") == ["11"]
+    assert store.load_version("t", "d", "11") is not None
+
+
+def test_save_rejects_unsafe_version_ids(tmp_path):
+    """A version id becomes an on-disk filename, so path separators and
+    traversal components must be rejected up front -- before any write --
+    rather than crashing mid-save or escaping the versions directory."""
+    store = BaselineStore(str(tmp_path / "store"))
+    for bad in ["a/b", "../evil", "..", ".", "a\\b", ""]:
+        with pytest.raises(ValueError):
+            store.save(BaselineProfile(), tenant="t", deployment="d", version=bad)
+    # A rejected save must leave the scope untouched (no partial dirs/files).
+    assert store.list_versions("t", "d") == []
 
 
 def test_capture_from_jsonl_fits_and_stores(tmp_path):
