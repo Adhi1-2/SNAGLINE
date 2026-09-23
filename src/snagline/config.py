@@ -245,9 +245,7 @@ def _validated_side_effect_guard(cfg: Config) -> None:
     """
     value = cfg.side_effect_allowed_repeats
     if value < 1:
-        raise ValueError(
-            f"side_effect_allowed_repeats must be >= 1; got {value!r}"
-        )
+        raise ValueError(f"side_effect_allowed_repeats must be >= 1; got {value!r}")
     if value != int(value):
         raise ValueError(
             "side_effect_allowed_repeats must be a whole number; the guard "

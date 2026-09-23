@@ -301,16 +301,18 @@ def test_fractional_allowed_repeats_blinds_the_guard():
 
     The guard fires on ``count == allowed_repeats + 1`` and ``count`` is
     always an integer, so ``1.5`` and ``2.5`` never match: repeated
-    non-idempotent actions would be silently tolerated forever.
+    non-idempotent actions would be silently tolerated forever. The field is
+    annotated ``int``; the values are passed untyped on purpose because a
+    config file hands the field straight through as a float.
     """
     for bad in (1.5, 2.5):
         with pytest.raises(ValueError, match="whole number"):
-            Config(side_effect_allowed_repeats=bad)
+            Config(side_effect_allowed_repeats=bad)  # type: ignore[arg-type]
 
 
 def test_int_equal_float_tolerance_still_works():
     """``2.0`` compares equal to ``2``, so it stays a valid configuration."""
-    cfg = Config(side_effect_allowed_repeats=2.0)
+    cfg = Config(side_effect_allowed_repeats=2.0)  # type: ignore[arg-type]
     assert cfg.side_effect_allowed_repeats == 2
 
 
