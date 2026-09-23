@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet.
 
 ### Fixed
+- `tests/sinks/test_continuum_sink.py`'s live `test_real_actionledger_flags_review`
+  never actually reached its assertions when CONTINUUM was installed: the in-test
+  `MiniStorage` double implemented `read_events` but not `read_all_events`, which
+  the real `continuum.actions.ActionLedger` authority / consumed-authority scans
+  read, so the test died with `AttributeError` instead of asserting. The double
+  now mirrors the full verified storage surface (the trailing-`**kwargs`
+  `append_event` keeps it resilient to CONTINUUM adding further parameters)
+  (#296).
 - `snagline baseline --list-versions` is now honored on both the fit and
   `retrain` paths and is read-only everywhere: it lists and exits 0 without
   fitting, writing `baseline.json`, or storing a new version. Without

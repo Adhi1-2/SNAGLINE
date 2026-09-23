@@ -134,6 +134,12 @@ def test_real_actionledger_flags_review() -> None:
         def read_events(self, run_id: str) -> list[Any]:
             return list(self.events)
 
+        def read_all_events(self, run_id: str) -> list[Any]:
+            # The full view ActionLedger's authority / consumed-authority scans
+            # read. The fake holds no compacted prefix, so "all" is the same
+            # in-memory list read_events returns.
+            return list(self.events)
+
         def read_archived_events(self, run_id: str) -> list[Any]:
             return []  # fake holds no compacted prefix
 
