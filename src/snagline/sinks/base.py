@@ -73,6 +73,40 @@ def describe_failure(exc: BaseException) -> str:
     return type(exc).__name__
 
 
+# Ceiling on sink POSTs in flight across the whole process at once.
+#
+# ``bounded_post`` gives up on a POST at its deadline but cannot cancel it: the
+# worker thread -- and the socket it holds -- lives on until the exchange
+# resolves on its own. Against an endpoint that is merely slow that is fine
+# (the thread drains and exits shortly after), but against one that is *dead* --
+# a black hole that neither answers nor resets -- every alert spawns a worker
+# that never returns, and a monitor under load would accumulate one parked
+# thread (and file descriptor) per emit without bound (issue #423).
+#
+# Cap the number that may be parked at once. The cap is deliberately generous:
+# a healthy POST finishes well inside its short timeout and frees its slot at
+# once, a transient resolver hiccup parks only a handful, and only a genuinely
+# dead endpoint under sustained load ever walks it up to the ceiling. It is a
+# single process-global guess -- it cannot know how many monitors or sinks
+# share the interpreter -- so it is set high enough to bound memory and file
+# descriptors without rejecting a realistic burst, and no higher. When it is
+# full a POST is dropped rather than queued: holding an alert behind a wall of
+# dead ones helps no one, and dropping keeps the caller's ingest step fast.
+_MAX_INFLIGHT_POSTS = 64
+_inflight_posts = threading.BoundedSemaphore(_MAX_INFLIGHT_POSTS)
+
+
+class SinkBusyError(RuntimeError):
+    """Raised when the in-flight sink-POST cap is full, so no POST was started.
+
+    Distinct from ``TimeoutError`` -- which means a POST *ran* and overran its
+    deadline -- a ``SinkBusyError`` means the POST was never attempted because
+    too many earlier ones are still parked on a stalled endpoint. Callers log
+    it fail-open exactly like any other delivery failure; ``describe_failure``
+    names it by class, so it carries no destination URL into the log.
+    """
+
+
 def bounded_post(request: urllib.request.Request, timeout: float) -> None:
     """POST ``request`` and drain the reply, bounded by a wall-clock deadline.
 
@@ -96,8 +130,24 @@ def bounded_post(request: urllib.request.Request, timeout: float) -> None:
     exchange by hand, which is far more new code to get wrong.
 
     Raises whatever the exchange raised once that is known, or ``TimeoutError``
-    if the deadline passed first. Callers catch and log.
+    if the deadline passed first. Raises ``SinkBusyError`` without starting the
+    POST at all when too many earlier ones are still parked (see
+    ``_MAX_INFLIGHT_POSTS``). Callers catch and log.
     """
+    if not _inflight_posts.acquire(blocking=False):
+        # Every slot is occupied by a POST still parked on a stalled endpoint.
+        # Refuse this one now rather than adding another abandoned thread; the
+        # caller logs it fail-open and its ingest step stays fast.
+        raise SinkBusyError(
+            f"snagline sink POST pool is full ({_MAX_INFLIGHT_POSTS} in flight); "
+            "dropping this delivery (fail-open)"
+        )
+    # Bind the pool we acquired from so the worker releases *that* object, not
+    # whatever the module global happens to name when it finally exits: an
+    # abandoned worker can outlive any reassignment of the global, and a
+    # release aimed at a different semaphore than the acquire would corrupt
+    # both counts.
+    pool = _inflight_posts
     outcome: dict[str, Any] = {}
 
     def _post() -> None:
@@ -106,6 +156,13 @@ def bounded_post(request: urllib.request.Request, timeout: float) -> None:
                 resp.read()
         except Exception as exc:  # reported to the caller below
             outcome["error"] = exc
+        finally:
+            # Free the slot the moment this worker is done -- whether it
+            # succeeded, failed, or was abandoned by a timed-out caller long
+            # ago. Releasing here (not in the caller) is what bounds the parked
+            # threads to the cap: an abandoned worker keeps its slot until it
+            # actually finishes, so the ceiling counts live threads, not calls.
+            pool.release()
 
     # A recognisable name so a parked sink thread is identifiable in a
     # py-spy snapshot of a stuck agent, which is how this gets found.
