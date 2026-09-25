@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unreachable. An out-of-range value is now a configuration error naming the
   knob (#317). 57305ac (fix(cli): make --list-versions read-only on fit and retrain paths)
 
+### Changed
+- The landing page's interactive terminal (`site/index.html`) no longer
+  advertises a `snagline audit` command the CLI does not have. Its simulated
+  `snagline --help` listed `watch`/`replay`/`bench`/`audit`/`clear` -- both
+  inventing `audit` and omitting the real `serve`, `hook`, and `baseline` --
+  so a newcomer who copied `snagline audit` into a shell hit "invalid choice".
+  The simulated help now lists exactly the CLI's real subcommands (`watch`,
+  `replay`, `bench`, `serve`, `hook`, `baseline`) with accurate descriptions,
+  the `audit` tab is labelled an in-browser demo view rather than a shell
+  command, and the two invented flags in the demo echoes (`replay --verbose`,
+  `bench --overhead --steps 1000`) are now real invocations (`replay
+  --summary`, `bench`) (#455).
+
 ## [0.1.0] - 2026-08-27
 
 This is the first tagged release. It comprises 87 merge commits on `origin/master`

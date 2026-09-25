@@ -804,7 +804,7 @@ footer{border-top:1px solid var(--line);padding:2.75rem var(--pad);max-width:150
         <button type="button" class="term-tab active" data-cmd="watch" role="tab" aria-selected="true" title="Stream live agent monitoring"><span class="t-cmd-prefix">$</span> watch</button>
         <button type="button" class="term-tab" data-cmd="replay" role="tab" aria-selected="false" title="Replay failure episode with step intercept"><span class="t-cmd-prefix">$</span> replay</button>
         <button type="button" class="term-tab" data-cmd="bench" role="tab" aria-selected="false" title="Run 2µs pipeline overhead benchmark"><span class="t-cmd-prefix">$</span> bench</button>
-        <button type="button" class="term-tab" data-cmd="audit" role="tab" aria-selected="false" title="Inspect detector pipeline & fail-open guarantees"><span class="t-cmd-prefix">$</span> audit</button>
+        <button type="button" class="term-tab" data-cmd="audit" role="tab" aria-selected="false" title="Inspect the detector pipeline & fail-open guarantees (in-browser demo view)"><span class="t-cmd-prefix">$</span> audit</button>
         <button type="button" class="term-tab term-tab-ghost" data-cmd="clear" title="Clear terminal screen buffer">clear</button>
       </div>
       <div class="term" id="term" tabindex="0" role="region" aria-label="Interactive SNAGLINE terminal">
@@ -812,7 +812,7 @@ footer{border-top:1px solid var(--line);padding:2.75rem var(--pad);max-width:150
         <form class="term-prompt-row" id="termForm" onsubmit="return false;">
           <span class="t-prompt-symbol">$</span>
           <span class="t-prompt-cli">snagline</span>
-          <input type="text" id="termInput" class="term-input" placeholder="type 'replay', 'bench', 'audit' (or click tabs above)..." autocomplete="off" spellcheck="false" aria-label="Interactive terminal input">
+          <input type="text" id="termInput" class="term-input" placeholder="type 'replay', 'bench', 'watch' (or click tabs above)..." autocomplete="off" spellcheck="false" aria-label="Interactive terminal input">
           <button type="submit" class="term-run-btn" id="termRunBtn" title="Run command" aria-label="Run command">↵</button>
         </form>
       </div>
@@ -1789,7 +1789,7 @@ $$('a[href^="#"]').forEach(function(a){
     if(titleEl) titleEl.innerHTML = 'snagline replay &middot; ' + file;
     setBadge('replaying', 'var(--amber)', true);
 
-    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline replay <span class="ac">' + file + '</span> --verbose', 'cmd-echo');
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline replay <span class="ac">' + file + '</span> --summary', 'cmd-echo');
 
     var step = 0;
     function nextStep(){
@@ -1817,7 +1817,7 @@ $$('a[href^="#"]').forEach(function(a){
     if(titleEl) titleEl.innerHTML = 'snagline bench &middot; 1,000 steps';
     setBadge('benchmarking', 'var(--accent)', true);
 
-    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline bench --overhead --steps 1000', 'cmd-echo');
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline bench', 'cmd-echo');
 
     var t0 = performance.now();
     var buf = new Array(128);
@@ -1876,10 +1876,10 @@ $$('a[href^="#"]').forEach(function(a){
     stopCurrent();
     currentCmd = 'audit';
     setActiveTab('audit');
-    if(titleEl) titleEl.innerHTML = 'snagline audit &middot; 5 detectors';
+    if(titleEl) titleEl.innerHTML = 'detector suite &middot; 5 detectors (demo view)';
     setBadge('auditing', 'var(--violet)', true);
 
-    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline audit --detectors', 'cmd-echo');
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm"># demo view: the detector suite (no <span class="ac">audit</span> subcommand &mdash; this is in-browser only)</span>', 'cmd-echo');
 
     var step = 0;
     function nextStep(){
@@ -1905,14 +1905,14 @@ $$('a[href^="#"]').forEach(function(a){
     currentCmd = 'help';
     setActiveTab('');
     addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline --help', 'cmd-echo');
-    addLine('<span class="ac">SNAGLINE</span> Interactive Terminal CLI v0.1.0');
-    addLine('Available commands:');
-    addLine('  <span class="ac">watch</span>    - Stream live agent monitoring in real-time');
-    addLine('  <span class="ac">replay</span>   - Replay failure episode with step intercept (ep-042)');
-    addLine('  <span class="ac">bench</span>    - Run nanosecond benchmark (median 2.08µs/step)');
-    addLine('  <span class="ac">audit</span>    - Inspect 5/5 detectors & fail-open guarantees');
-    addLine('  <span class="ac">clear</span>    - Clear terminal screen buffer');
-    addLine('<span class="dm">Tip: Click the preset tabs above or type any command and press Enter!</span>');
+    addLine('<span class="ac">snagline</span> v0.1.0 &mdash; real CLI subcommands:');
+    addLine('  <span class="ac">watch</span>    - Stream live agent monitoring (stdin or --file, --follow)');
+    addLine('  <span class="ac">replay</span>   - Replay a JSONL trajectory through the detectors (--quiet, --summary)');
+    addLine('  <span class="ac">bench</span>    - Run the ingest() overhead benchmark');
+    addLine('  <span class="ac">serve</span>    - Run the sidecar HTTP server (POST /events, GET /health)');
+    addLine('  <span class="ac">hook</span>     - Universal hook bridge: map a payload from stdin and forward it');
+    addLine('  <span class="ac">baseline</span> - Fit a healthy-run latency/error baseline from a trajectory');
+    addLine('<span class="dm">This in-browser demo also provides: audit (detector view), clear.</span>');
     setBadge('help', 'var(--ink-2)', false);
   }
 
