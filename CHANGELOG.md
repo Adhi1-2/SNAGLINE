@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   score-0.8 warning; values above `1.0` made the pre-breach warning
   unreachable. An out-of-range value is now a configuration error naming the
   knob (#317). 57305ac (fix(cli): make --list-versions read-only on fit and retrain paths)
+- Halt-webhook enforcement now falls the directive back to `continue` when a
+  consultation fails, instead of leaving a previously latched `pause` in force.
+  The error path (timeout, dead endpoint, malformed body, unknown action) reset
+  `policy_errors` but never touched `last_directive`, so once a severe risk
+  latched `pause` an unreachable halt service held the host paused indefinitely
+  on a stale decision it could no longer confirm -- the fail-CLOSED outcome the
+  `last_directive` docstring, the method docstring, and the module header all
+  promise against. It now resets to `continue` under `fail_open=True` (a genuine
+  pause is re-issued on the next successful consult); `fail_open=False` still
+  propagates (#523).
 
 ## [0.1.0] - 2026-08-27
 
