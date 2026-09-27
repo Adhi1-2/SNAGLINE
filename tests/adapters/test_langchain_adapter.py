@@ -101,6 +101,82 @@ def test_llm_end_emits_message_with_tokens() -> None:
     assert e.tokens_in == 10 and e.tokens_out == 20
 
 
+def _chat_generation(usage: Any) -> Any:
+    """A stub matching langchain-core's ChatGeneration -> AIMessage shape."""
+    message = type("Msg", (), {"usage_metadata": usage})()
+    return type("Gen", (), {"message": message})()
+
+
+def test_llm_end_reads_tokens_from_usage_metadata_when_llm_output_is_none() -> None:
+    # The standardized chat-model path: llm_output is None and per-message
+    # token counts live on AIMessage.usage_metadata (issue #515).
+    mon = _monitor()
+    h = SnaglineCallbackHandler(mon, "ep1")
+    h.on_chat_model_start({"name": "chat"}, [[]], run_id="r3b")
+    usage = {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18}
+    h.on_llm_end(
+        type(
+            "R", (), {"llm_output": None, "generations": [[_chat_generation(usage)]]}
+        )(),
+        run_id="r3b",
+    )
+    e = mon.events[-1]
+    assert e.action_type == "message"
+    assert e.tokens_in == 11 and e.tokens_out == 7
+
+
+def test_llm_end_sums_usage_metadata_across_generations() -> None:
+    mon = _monitor()
+    h = SnaglineCallbackHandler(mon, "ep1")
+    h.on_chat_model_start({"name": "chat"}, [[]], run_id="r3c")
+    g1 = _chat_generation({"input_tokens": 5, "output_tokens": 3})
+    g2 = _chat_generation({"input_tokens": 6, "output_tokens": 4})
+    h.on_llm_end(
+        type("R", (), {"llm_output": None, "generations": [[g1], [g2]]})(),
+        run_id="r3c",
+    )
+    e = mon.events[-1]
+    assert e.tokens_in == 11 and e.tokens_out == 7
+
+
+def test_llm_end_prefers_llm_output_over_usage_metadata() -> None:
+    # When both are present, the legacy llm_output path still wins, so
+    # langchain-openai hosts see no behavior change.
+    mon = _monitor()
+    h = SnaglineCallbackHandler(mon, "ep1")
+    h.on_llm_start({"name": "llm"}, ["prompt"], run_id="r3d")
+    gen = _chat_generation({"input_tokens": 99, "output_tokens": 99})
+    h.on_llm_end(
+        type(
+            "R",
+            (),
+            {
+                "llm_output": {
+                    "token_usage": {"prompt_tokens": 10, "completion_tokens": 20}
+                },
+                "generations": [[gen]],
+            },
+        )(),
+        run_id="r3d",
+    )
+    e = mon.events[-1]
+    assert e.tokens_in == 10 and e.tokens_out == 20
+
+
+def test_llm_end_without_any_token_source_emits_none() -> None:
+    mon = _monitor()
+    h = SnaglineCallbackHandler(mon, "ep1")
+    h.on_llm_start({"name": "llm"}, ["prompt"], run_id="r3e")
+    h.on_llm_end(
+        type(
+            "R", (), {"llm_output": None, "generations": [[_chat_generation(None)]]}
+        )(),
+        run_id="r3e",
+    )
+    e = mon.events[-1]
+    assert e.tokens_in is None and e.tokens_out is None
+
+
 def test_repeated_tool_calls_trigger_loop_detector() -> None:
     mon = _monitor()
     h = SnaglineCallbackHandler(mon, "ep-loop")

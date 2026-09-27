@@ -29,6 +29,37 @@ except Exception:  # pragma: no cover - exercised only without LangChain
     BaseCallbackHandler = object  # type: ignore[assignment,misc]
 
 
+def _tokens_from_usage_metadata(response: Any) -> tuple[int | None, int | None]:
+    """Sum per-message token counts from ``AIMessage.usage_metadata``.
+
+    langchain-core standardizes chat-model token accounting on each generated
+    message's ``usage_metadata`` (``{"input_tokens", "output_tokens", ...}``)
+    and leaves ``LLMResult.llm_output`` None on that path. Walk
+    ``response.generations`` (a list of per-prompt batches) and add up the
+    counts that are present. Duck-typed via ``getattr`` so it needs no
+    LangChain import, and returns ``(None, None)`` when no generation carries a
+    usable count, so the caller keeps its previous behavior.
+    """
+    generations = getattr(response, "generations", None)
+    if not generations:
+        return None, None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    for batch in generations:
+        for generation in batch or []:
+            message = getattr(generation, "message", None)
+            usage = getattr(message, "usage_metadata", None)
+            if not isinstance(usage, dict):
+                continue
+            got_in = usage.get("input_tokens")
+            got_out = usage.get("output_tokens")
+            if isinstance(got_in, int):
+                tokens_in = got_in if tokens_in is None else tokens_in + got_in
+            if isinstance(got_out, int):
+                tokens_out = got_out if tokens_out is None else tokens_out + got_out
+    return tokens_in, tokens_out
+
+
 class SnaglineCallbackHandler(BaseCallbackHandler):
     """Drop-in LangChain callback handler that monitors an agent run.
 
@@ -312,6 +343,15 @@ class SnaglineCallbackHandler(BaseCallbackHandler):
             tu = llm_output.get("token_usage") or {}
             tokens_in = tu.get("prompt_tokens")
             tokens_out = tu.get("completion_tokens")
+        # langchain-core >= 0.2 standardizes per-message token accounting on
+        # AIMessage.usage_metadata (input_tokens / output_tokens) and leaves
+        # LLMResult.llm_output None on that path -- which is the chat-model
+        # path, the create_agent / LangGraph default. Without this fallback a
+        # modern chat run reported no tokens at all and the token-runaway
+        # detector was silently starved (issue #515). The llm_output read above
+        # still wins when present (langchain-openai keeps populating it).
+        if tokens_in is None and tokens_out is None:
+            tokens_in, tokens_out = _tokens_from_usage_metadata(response)
         self._emit(
             "message",
             info["tool"],

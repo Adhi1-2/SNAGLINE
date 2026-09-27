@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet.
 
 ### Fixed
+- The LangChain adapter (`SnaglineCallbackHandler.on_llm_end`) now reads token
+  counts from `AIMessage.usage_metadata` when `LLMResult.llm_output` carries
+  none. langchain-core standardized per-message token accounting on
+  `usage_metadata` (`input_tokens`/`output_tokens`) and leaves `llm_output`
+  `None` on the chat-model path — the `create_agent` / LangGraph default — so
+  the adapter used to emit `tokens_in=tokens_out=None` on every LLM step and
+  silently starved the token-runaway detector. The legacy
+  `llm_output["token_usage"]` shape (still emitted by langchain-openai) keeps
+  its precedence, so nothing changes for those hosts (#515).
 - `snagline baseline --list-versions` is now honored on both the fit and
   `retrain` paths and is read-only everywhere: it lists and exits 0 without
   fitting, writing `baseline.json`, or storing a new version. Without
