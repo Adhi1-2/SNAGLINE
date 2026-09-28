@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `security` label that the repo does not define — the token was inert, so the
   exempt lists now name only labels that exist (`help wanted`, `good first
   issue`) (#471).
+- `pyproject.toml` now advertises the shipped inline type information with the
+  `Typing :: Typed` trove classifier (the `py.typed` marker was already
+  shipped, but PyPI never surfaced the package as typed), plus
+  `Environment :: Console` given the `snagline` console script. A packaging
+  test now fails if the marker ships without the classifier (#456).
 
 ### Fixed
 - The explicit `wrap_openai_client` / `wrap_anthropic_client` stream wrappers
