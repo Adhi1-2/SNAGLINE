@@ -148,6 +148,34 @@ class _WelfordCUSUM:
         self.sigma0 = self._floored_sigma(mean, std)
         self.frozen = True
 
+    def apply_core_state(self, raw: dict[str, Any]) -> None:
+        """Restore the seven core counters from a snapshot, coerced (issue #424).
+
+        ``dump_state`` copies these off a live object and a snapshot is only
+        JSON, so a hand edit, a torn write, or a schema change between two
+        versions can hand back an entry whose keys are all *present* but whose
+        values are not numbers. Such an entry is structurally complete -- it
+        clears every guard and is published -- and the failure then moves out
+        of restore and into the next event: ``int("x") + 1`` raises inside
+        ``learn_only``, ``Monitor.ingest`` swallows it fail-open, and the
+        corrupted state stays put so *every* later event from that episode
+        raises the same error and scores nothing for the rest of its life.
+
+        Coercing to the real type rejects a structurally-complete-but-broken
+        entry here, where the caller's containment already handles it, instead
+        of accepting it and detonating on the next ``observe``.
+        """
+        self.n = int(raw["n"])
+        self.mean = float(raw["mean"])
+        self._m2 = float(raw["m2"])
+        self.cusum = float(raw["cusum"])
+        # mu0 is the one field that may legitimately be None: a state
+        # snapshotted mid warm-up has no baseline yet (freeze() sets it).
+        mu0 = raw["mu0"]
+        self.mu0 = None if mu0 is None else float(mu0)
+        self.sigma0 = float(raw["sigma0"])
+        self.frozen = bool(raw["frozen"])
+
     def _floored_sigma(self, mean: float, std: float) -> float:
         """Reference spread: observed std floored per the configured floors."""
         if mean != 0.0:
@@ -471,13 +499,7 @@ class LatencyAnomalyDetector:
 
     @classmethod
     def _state_from_dict(cls, s: _WelfordCUSUM, raw: dict[str, Any]) -> None:
-        # The seven core Welford/CUSUM counters (n, mean, m2, cusum, mu0,
-        # sigma0, frozen) are already parsed *and coerced to their real types*
-        # by ``from_snapshot``; re-assigning them raw here would silently undo
-        # that coercion (a numeric-string ``"n": "20"`` would be stored as a
-        # str and poison ``learn_only``'s ``self.n += 1`` on the next event --
-        # exactly the failure #424 set out to prevent). Only the re-fit
-        # bookkeeping is set here, and it is coerced in place.
+        s.apply_core_state(raw)
         # Tolerant .get(): pre-#92 snapshots carry no re-fit fields, and a
         # detector configured without refits must accept one written with
         # them (the knob is read from the live config, not the snapshot).
