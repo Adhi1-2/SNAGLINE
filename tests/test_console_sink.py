@@ -54,3 +54,31 @@ def test_console_sink_is_fire_and_forget_on_broken_stream() -> None:
     sink = ConsoleSink(stream=BrokenStream())  # type: ignore[arg-type]
     # Must not raise.
     sink.emit(_risk())
+
+
+def test_console_sink_min_severity_filters_below_threshold() -> None:
+    # The console is the default escalation target, so --min-severity must
+    # filter it like the webhook/slack/pagerduty sinks do (issue #248 wired
+    # only those three). A critical-only console must drop warning/info risks
+    # and keep critical ones.
+    import io
+
+    buf = io.StringIO()
+    sink = ConsoleSink(stream=buf, min_severity="critical")
+    sink.emit(FailureRisk("ep", "s-warn", 0.6, "loop", "warn", 1.0))  # warning
+    sink.emit(FailureRisk("ep", "s-info", 0.3, "loop", "info", 2.0))  # info
+    assert buf.getvalue() == "", "below-threshold risks must be dropped"
+    sink.emit(FailureRisk("ep", "s-crit", 0.9, "loop", "crit", 3.0))  # critical
+    out = buf.getvalue()
+    assert '"step_id": "s-crit"' in out
+    assert "s-warn" not in out and "s-info" not in out
+
+
+def test_console_sink_no_min_severity_emits_everything() -> None:
+    # Default (no filter) keeps the pre-#248 behaviour: every risk prints.
+    import io
+
+    buf = io.StringIO()
+    sink = ConsoleSink(stream=buf)
+    sink.emit(FailureRisk("ep", "s-info", 0.1, "loop", "info", 1.0))
+    assert '"step_id": "s-info"' in buf.getvalue()

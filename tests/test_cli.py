@@ -334,6 +334,34 @@ def test_build_sinks_webhook_receives_min_severity():
     assert sink._min == "critical", "webhook branch must consume --min-severity"
 
 
+def test_build_sinks_console_receives_min_severity():
+    # The default console sink must consume --min-severity too: #248 wired the
+    # webhook/slack/pagerduty branches but left the default console branch
+    # passing a bare ConsoleSink(), silently ignoring the operator's filter.
+    from snagline.cli import _build_sinks
+    from snagline.sinks.console import ConsoleSink
+
+    sinks = _build_sinks(_args(sink="console", min_severity="critical"), Config())
+    assert len(sinks) == 1 and isinstance(sinks[0], ConsoleSink)
+    assert sinks[0]._min == "critical", "console branch must consume --min-severity"
+
+
+def test_build_sinks_console_pair_min_severity_covers_logging_sink():
+    # With --log-format json the console pair also carries a LoggingSink; the
+    # filter must reach it too, or a json run leaks the info-level records the
+    # console itself now drops.
+    from snagline.cli import _build_sinks
+    from snagline.sinks.console import ConsoleSink
+    from snagline.sinks.logging_sink import LoggingSink
+
+    sinks = _build_sinks(
+        _args(sink="console", min_severity="warning"),
+        Config(log_format="json"),
+    )
+    assert [type(s) for s in sinks] == [ConsoleSink, LoggingSink]
+    assert all(getattr(s, "_min") == "warning" for s in sinks)
+
+
 def test_min_severity_typo_exits_2(capsys):
     """A typo'd severity must fail loudly like other closed-set config values
     (#119 log_format, #93 policy), not quietly degrade the filter to warning."""

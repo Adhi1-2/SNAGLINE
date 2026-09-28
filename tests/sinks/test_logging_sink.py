@@ -286,3 +286,30 @@ def test_config_log_format_from_file(tmp_path):
     path.write_text('{"log_format": "json", "unknown_key": 1}', encoding="utf-8")
     cfg = Config.load_file(str(path))
     assert cfg.log_format == "json"
+
+
+# --- min_severity filter (the console pair honours --min-severity, #248) -----
+
+
+def test_logging_sink_min_severity_drops_below_threshold():
+    lg, cap = _capture_logger()
+    try:
+        sink = LoggingSink(logger=lg, min_severity="critical")
+        sink.emit(_risk(step_id="warn", score=0.6))  # warning: dropped
+        sink.emit(_risk(step_id="info", score=0.2))  # info: dropped
+        assert cap.records == []
+        sink.emit(_risk(step_id="crit", score=0.9))  # critical: kept
+        assert len(cap.records) == 1
+        assert '"step_id":"crit"' in cap.records[0].getMessage()
+    finally:
+        lg.removeHandler(cap)
+
+
+def test_logging_sink_without_min_severity_emits_everything():
+    lg, cap = _capture_logger()
+    try:
+        sink = LoggingSink(logger=lg)
+        sink.emit(_risk(step_id="info", score=0.1))
+        assert len(cap.records) == 1
+    finally:
+        lg.removeHandler(cap)
