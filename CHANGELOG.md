@@ -455,6 +455,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warning now also points at the right alternative: `SNAGLINE_CALIBRATION_
   BASELINE_PATH` for the one field with a path form, or passing the object in
   code for `goal_drift_baseline`, which has none (#355).
+- `goal_drift_score_threshold`, `ml_ensemble_score_threshold`,
+  `goal_drift_error_tolerance` and `goal_drift_latency_k` are now range-checked
+  at construction and after env/file layering, alongside the divisor and count
+  knobs. Both detectors gate their own output on a score threshold, and scores
+  are clamped to [0, 1], so a threshold above `1.0` made the gate always true
+  and the detector could never fire on any input -- reporting
+  `detector_errors == 0` while monitoring nothing -- while `0.0` or less fired
+  on a score of exactly `0.0`, paging healthy traffic. A negative tolerance or
+  latency k added to the drift instead of absorbing it, since both are slack
+  subtracted from a non-negative measure. None of them divide or count, which
+  is why the earlier validators missed them (#385).
 
 ## [0.1.0] - 2026-08-27
 

@@ -445,6 +445,42 @@ def _validated_semantic_drift(cfg: Config) -> None:
             "the CUSUM debt instead of subtracting and storms false "
             f"positives; got {cfg.semantic_drift_cusum_k!r}"
         )
+def _validated_score_thresholds(cfg: Config) -> None:
+    """Validate the comparison-style score/tolerance knobs (issue #385).
+
+    The goal-drift and ml-ensemble detectors gate their own output on a score
+    threshold, and the scores are clamped to ``[0, 1]``. So a threshold above
+    ``1.0`` makes ``score < threshold`` always true and the detector can never
+    emit a risk on any input, while a negative one makes it always false, so a
+    score of exactly ``0.0`` -- an episode indistinguishable from the healthy
+    baseline -- still pages. The tolerance knobs are the same comparison run
+    backwards: ``error_tolerance`` is subtracted from the live-minus-baseline
+    error gap, and ``latency_k`` is subtracted from a z-score, so a negative
+    value adds to the drift instead of absorbing it.
+
+    None of these is a divisor or a count, which is why they sit outside
+    ``_validated_divisor_thresholds`` and ``_validated_counts_and_windows``:
+    a bad value here never raises, it just produces wrong telemetry until
+    someone notices the missing or spurious pages.
+    """
+    for name in ("goal_drift_score_threshold", "ml_ensemble_score_threshold"):
+        value = getattr(cfg, name)
+        if not 0.0 < value <= 1.0:
+            raise ValueError(
+                f"{name} must be within (0.0, 1.0]; got {value!r}. Scores are "
+                "clamped to [0, 1], so a threshold above 1.0 makes the detector's "
+                "own gate always true and it can never fire, while 0.0 or less "
+                "fires on a zero score -- healthy traffic pages. Use the "
+                "*_enabled flag to disable a detector, not its threshold"
+            )
+    for name in ("goal_drift_error_tolerance", "goal_drift_latency_k"):
+        value = getattr(cfg, name)
+        if value < 0.0:
+            raise ValueError(
+                f"{name} must be >= 0; got {value!r}. The value is slack "
+                "subtracted from a non-negative drift measure, so a negative "
+                "one adds to the drift and healthy traffic pages"
+            )
 
 
 @dataclass
@@ -753,6 +789,10 @@ class Config:
         # Issue #370: same policy for the semantic goal-drift CUSUM knobs.
         # Their defaults are valid, so only a configured value trips these.
         _validated_semantic_drift(self)
+        # Issue #385: the goal-drift / ml-ensemble score gates and tolerances.
+        # These never raise on their own -- they only mis-route alerts -- so
+        # they need the same startup check the other comparison knobs get.
+        _validated_score_thresholds(self)
 
     # --- 12-factor configuration (project.md §5.4, ATTACH_ANY_SYSTEM P0) -----
     @classmethod
@@ -915,4 +955,8 @@ class Config:
         # clear error, not deaden the detector with a swallowed
         # ZeroDivisionError once steps start flowing.
         _validated_semantic_drift(cfg)
+        # Same re-validation for the score gates and tolerances (issue #385):
+        # SNAGLINE_GOAL_DRIFT_SCORE_THRESHOLD=2 must abort startup rather than
+        # run a goal-drift detector that can never fire.
+        _validated_score_thresholds(cfg)
         return cfg
