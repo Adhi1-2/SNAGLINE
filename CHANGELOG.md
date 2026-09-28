@@ -226,6 +226,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scheme and host, and once it carries a secret the exception's own text is
   withheld too, since redis-py's parse failures can quote the value back
   (#392).
+- `ConsoleSink(stream=...)` now rejects a binary or already-closed stream at
+  construction with a `TypeError` naming the stream and advising
+  `open(path, 'w')` or the logging module. `open(p, "wb")` and
+  `sys.stdout.buffer` are the natural ways to route alerts to a file, and a
+  `str` write to either raises `TypeError` -- not an `OSError` subclass, so
+  the fire-and-forget guard in `emit()` never caught it and every alert was
+  silently discarded for the whole run behind the fail-open contract (#391).
 
 ## [0.1.0] - 2026-08-27
 
