@@ -192,10 +192,14 @@ class _SyncStreamWrapper:
         with contextlib.suppress(Exception):
             self._monitor.ingest(event)
 
-    def __del__(self) -> None:
-        if not self._emitted:
-            with contextlib.suppress(Exception):
-                self._emit(error=False, error_type=None)
+    # No __del__: a stream dropped without reaching exhaustion, close(), or an
+    # iteration error never completed, so it is deliberately not recorded.
+    # Emitting from __del__ marked such a stream error=False -- a phantom success
+    # that understated the error rate -- and stamped latency_ms as time-until-GC,
+    # a garbage sample that poisoned the LatencyAnomalyDetector baseline for the
+    # tool. The async wrapper below and the snagline.auto stream wrappers never
+    # emitted on abandonment; dropping this __del__ makes every surface agree and
+    # keeps the metric to calls that actually completed (issue #531).
 
 
 class _AsyncStreamWrapper:

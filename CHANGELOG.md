@@ -267,6 +267,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outside the scope directory. Ids are now validated up front and a bad one
   raises `ValueError` before anything is written. The default path (synthesized
   fixed-width timestamp id) is unaffected (#451).
+- The `adapters/openai.py` and `adapters/anthropic.py` sync stream wrappers no
+  longer fabricate a telemetry event from `__del__` for an abandoned stream. A
+  stream created but never iterated, closed, or failed reached no completion
+  boundary, yet `__del__` emitted it as an `error=False` success (understating
+  the error rate) with a `latency_ms` measured as time-until-garbage-collection
+  (a bogus sample that poisoned the `LatencyAnomalyDetector` Welford/CUSUM
+  baseline for that tool). The `__del__` is removed, so an abandoned stream now
+  emits nothing — matching the async wrappers and the `snagline.auto` stream
+  wrappers, which never emitted on abandonment (#531).
 - `snagline baseline --list-versions` is now honored on both the fit and
   `retrain` paths and is read-only everywhere: it lists and exits 0 without
   fitting, writing `baseline.json`, or storing a new version. Without

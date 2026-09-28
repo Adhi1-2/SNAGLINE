@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 from types import SimpleNamespace
 
 from snagline.adapters.anthropic import wrap_anthropic_client
@@ -150,6 +151,45 @@ def test_anthropic_sync_stream_defers():
     list(stream)
     assert len(mon.events) == 1
     assert mon.events[0].tokens_in == 3
+
+
+def test_openai_sync_stream_abandoned_emits_nothing():
+    """Issue #531: a stream created but never iterated or closed must not be
+    recorded. The old __del__ emitted a phantom ``error=False`` success with a
+    time-until-GC ``latency_ms`` that poisoned the LatencyAnomalyDetector
+    baseline. An abandoned stream reaches no completion boundary, so nothing is
+    emitted -- matching the async and snagline.auto wrappers."""
+    mon = _Mon()
+
+    def fake_create(*args, **kwargs):
+        return _mock_openai_stream([SimpleNamespace(usage=None)])
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+    wrap_openai_client(mon, client, episode_id="ep-abandon")
+    stream = client.chat.completions.create(model="gpt-4o", messages=[], stream=True)
+    assert len(mon.events) == 0
+    # Drop the wrapper without iterating or closing it, then force collection.
+    del stream
+    gc.collect()
+    assert mon.events == []
+
+
+def test_anthropic_sync_stream_abandoned_emits_nothing():
+    """Anthropic twin of the #531 abandoned-stream check."""
+    mon = _Mon()
+
+    def fake_create(*args, **kwargs):
+        return _mock_anthropic_stream([SimpleNamespace(usage=None)])
+
+    client = SimpleNamespace(messages=SimpleNamespace(create=fake_create))
+    wrap_anthropic_client(mon, client, episode_id="ep-a-abandon")
+    stream = client.messages.create(model="claude-3", messages=[], stream=True)
+    assert len(mon.events) == 0
+    del stream
+    gc.collect()
+    assert mon.events == []
 
 
 def test_openai_async_stream_defers():
