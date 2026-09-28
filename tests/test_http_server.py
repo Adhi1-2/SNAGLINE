@@ -965,7 +965,6 @@ def test_get_endpoints_are_not_gated_on_origin() -> None:
         server.server_close()
 
 
-
 def _start_server_with_monitor(
     sink: _RecordingSink,
 ) -> tuple[Any, str, Monitor]:
