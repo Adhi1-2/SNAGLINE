@@ -7,6 +7,8 @@ when the SDK is absent.
 
 from __future__ import annotations
 
+import asyncio
+
 from snagline.auto.openai import instrument_openai, wrap_client
 
 
@@ -16,6 +18,19 @@ class _SpyMonitor:
 
     def ingest(self, event) -> None:
         self.events.append(event)
+
+
+class _Usage:
+    def __init__(self, prompt_tokens, completion_tokens):
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+
+
+class _Resp:
+    """A non-streaming response carrying usage, like the real SDK returns."""
+
+    def __init__(self, prompt_tokens=1200, completion_tokens=340):
+        self.usage = _Usage(prompt_tokens, completion_tokens)
 
 
 class _FakeCompletions:
@@ -96,3 +111,44 @@ def test_instrument_openai_without_sdk_is_safe_noop(monkeypatch, caplog):
 def test_instrument_openai_with_explicit_client():
     mon = _SpyMonitor()
     assert instrument_openai(mon, client=_FakeClient()) is True
+
+
+def test_nonstreaming_success_extracts_tokens():
+    # Issue #529: the non-streaming path emitted tokens_in/out=None even though
+    # result.usage is present, starving the token-runaway/budget detectors that
+    # early-return when both are None. The explicit adapters and the stream
+    # wrappers already extract; the auto non-streaming path must too.
+    class _UsageCompletions:
+        def create(self, *, model="gpt", messages=None, prompt=None, **kw):
+            return _Resp(prompt_tokens=1200, completion_tokens=340)
+
+    class _Client:
+        chat = type("C", (), {"completions": _UsageCompletions()})()
+
+    mon = _SpyMonitor()
+    client = wrap_client(mon, _Client())
+    client.chat.completions.create(model="gpt-4o", messages=[{"role": "user"}])
+    assert len(mon.events) == 1
+    ev = mon.events[0]
+    assert ev.tokens_in == 1200
+    assert ev.tokens_out == 340
+
+
+def test_nonstreaming_async_success_extracts_tokens():
+    # Same as above for the async create path (auto/openai.py::_async).
+    class _AsyncUsageCompletions:
+        async def create(self, *, model="gpt", messages=None, prompt=None, **kw):
+            return _Resp(prompt_tokens=90, completion_tokens=12)
+
+    class _Client:
+        chat = type("C", (), {"completions": _AsyncUsageCompletions()})()
+
+    mon = _SpyMonitor()
+    client = wrap_client(mon, _Client())
+    asyncio.run(
+        client.chat.completions.create(model="gpt-4o", messages=[{"role": "user"}])
+    )
+    assert len(mon.events) == 1
+    ev = mon.events[0]
+    assert ev.tokens_in == 90
+    assert ev.tokens_out == 12

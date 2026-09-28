@@ -338,7 +338,21 @@ def _wrap_one(monitor, original, tool_name):
             return _SyncStreamWrapper(
                 monitor, counter, model, tool_name, sig_text, start, result
             )
-        _emit(monitor, counter, model, tool_name, sig_text, start, False)
+        # Non-streaming success carries usage on the result; extract it so the
+        # token-runaway / budget detectors get the same coverage the explicit
+        # adapters and the stream wrappers already provide (issue #529).
+        tokens_in, tokens_out = _extract_tokens(result)
+        _emit(
+            monitor,
+            counter,
+            model,
+            tool_name,
+            sig_text,
+            start,
+            False,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+        )
         return result
 
     async def _async(*args, **kwargs):
@@ -363,7 +377,19 @@ def _wrap_one(monitor, original, tool_name):
             return _AsyncStreamWrapper(
                 monitor, counter, model, tool_name, sig_text, start, result
             )
-        _emit(monitor, counter, model, tool_name, sig_text, start, False)
+        # Non-streaming success carries usage on the result; extract it (#529).
+        tokens_in, tokens_out = _extract_tokens(result)
+        _emit(
+            monitor,
+            counter,
+            model,
+            tool_name,
+            sig_text,
+            start,
+            False,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+        )
         return result
 
     wrapper = _async if is_async else _sync
