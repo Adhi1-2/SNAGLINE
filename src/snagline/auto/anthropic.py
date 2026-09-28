@@ -193,6 +193,7 @@ class _SyncStreamWrapper:
             self._emit(error=True, error_type=type(exc_info[1]).__name__)
         self.close()
         return False
+
     def _track_usage(self, chunk: Any) -> None:
         ti, to = _stream_usage(chunk)
         if ti is not None:
@@ -294,6 +295,7 @@ class _AsyncStreamWrapper:
             self._emit(error=True, error_type=type(exc_info[1]).__name__)
         await self.aclose()
         return False
+
     def _track_usage(self, chunk: Any) -> None:
         ti, to = _stream_usage(chunk)
         if ti is not None:

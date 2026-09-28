@@ -26,8 +26,6 @@ from snagline.risk import (
     SEVERITY_WARNING,
     FailureRisk,
 )
-from snagline.sinks.base import format_sink_repr
-from snagline.sinks.base import describe_failure, redacted_destination
 from snagline.sinks.base import (
     bounded_post,
     describe_failure,
@@ -62,9 +60,6 @@ class WebhookSink:
 
     def __repr__(self) -> str:
         """Repr without the destination URL, which is a credential (#390)."""
-        return format_sink_repr(
-            "WebhookSink", timeout=self._timeout, min_severity=self._min
-        )
         # The URL is the credential, so the default attribute-dump repr would
         # leak it into any diagnostic dump (issue #390).
         return f"WebhookSink({redacted_destination(self._url)!r})"
@@ -90,8 +85,6 @@ class WebhookSink:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
-                resp.read()
             bounded_post(req, self._timeout)
         except Exception as exc:
             # The URL is the credential -- it can carry basic auth

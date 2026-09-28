@@ -160,6 +160,8 @@ def test_scaling_retains_more_history_after_readiness_opens():
     # After 80 steps target == 20*ceil(80/10) == 160, capped by the 80 items
     # actually seen: the window holds all 80, not just the base 20.
     assert len(d._eps["ep"].window) == 80
+
+
 def _fallback_event(step_id: int, signature: str) -> StepEvent:
     # tool_name absent -> _identity falls back to the raw action_signature.
     # This is the generic-endpoint case: HTTP-style instrumentation with no

@@ -364,6 +364,8 @@ def test_openai_stream_context_manager_error_after_exhaustion_stays_success() ->
     assert inner.closed
     assert len(mon.events) == 1
     assert mon.events[0].error is False
+
+
 # --- Issue #530: Anthropic streaming token usage is split across events. ---
 # ``message_start`` carries ``input_tokens`` (and an initial ``output_tokens``)
 # on ``event.message.usage``; ``message_delta`` carries the running

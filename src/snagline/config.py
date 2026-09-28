@@ -499,6 +499,8 @@ def _validated_semantic_drift(cfg: Config) -> None:
             "the CUSUM debt instead of subtracting and storms false "
             f"positives; got {cfg.semantic_drift_cusum_k!r}"
         )
+
+
 def _validated_score_thresholds(cfg: Config) -> None:
     """Validate the comparison-style score/tolerance knobs (issue #385).
 

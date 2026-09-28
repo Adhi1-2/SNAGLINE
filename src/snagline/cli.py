@@ -861,6 +861,8 @@ def _resolved_max_versions(args: argparse.Namespace) -> int | None:
         )
         return None
     return args.max_versions
+
+
 def _tool_line(tb: ToolBaseline) -> str:
     """Render one fitted tool's summary line for ``baseline fit`` output.
 

@@ -27,9 +27,13 @@ def server():
         thread.join(timeout=5)
 
 
-def _request(port, method, path, body=None):
+def _request(port, method, path, body=None, headers=None):
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-    conn.request(method, path, body=body)
+    # Mutating routes gate on a JSON content type (issue #388); the shipped
+    # clients always send it, so mirror them here.
+    if headers is None and method == "POST":
+        headers = {"Content-Type": "application/json"}
+    conn.request(method, path, body=body, headers=headers or {})
     resp = conn.getresponse()
     data = resp.read()
     conn.close()

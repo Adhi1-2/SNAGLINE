@@ -120,6 +120,8 @@ def test_console_sink_emit_survives_a_stream_closed_after_construction() -> None
     later, so the emit guard stays: it must catch ValueError (closed) and
     TypeError (a stream whose type changed underneath it), not OSError
     alone."""
+
+
 def test_console_sink_min_severity_filters_below_threshold() -> None:
     # The console is the default escalation target, so --min-severity must
     # filter it like the webhook/slack/pagerduty sinks do (issue #248 wired

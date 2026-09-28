@@ -247,7 +247,10 @@ def test_non_ascii_token_header_is_rejected_without_crashing(header: str) -> Non
         req = urllib.request.Request(
             base + "/events",
             data=json.dumps(event).encode(),
-            headers={"Authorization": "Bearer secret"},
+            headers={
+                "Authorization": "Bearer secret",
+                "Content-Type": "application/json",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:

@@ -185,6 +185,8 @@ def test_load_state_round_trips_a_mid_warmup_state():
     d2.load_state(d1.dump_state())
     assert d2._states[("ep", "search")].mu0 is None
     assert d2._states[("ep", "search")].n == 3
+
+
 # --- calibrated start must not seed from a latency-less profile (#348) --------
 
 

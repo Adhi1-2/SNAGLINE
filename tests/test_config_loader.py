@@ -510,6 +510,8 @@ def test_semantic_drift_cusum_knobs_out_of_range_abort_startup():
         ).semantic_drift_cusum_k
         == 0.0
     )
+
+
 def test_score_thresholds_and_tolerances_out_of_range_abort_startup():
     """Issue #385: the goal-drift / ml-ensemble comparison knobs are gated, not
     divided, so a bad value never raises downstream -- it either storms healthy

@@ -21,14 +21,13 @@ import json
 import logging
 from contextlib import suppress
 
-from snagline.risk import FailureRisk
-from snagline.sinks.base import format_sink_repr
 from snagline.risk import (
     SEVERITY_CRITICAL,
     SEVERITY_INFO,
     SEVERITY_WARNING,
     FailureRisk,
 )
+from snagline.sinks.base import format_sink_repr
 
 logger = logging.getLogger("snagline")
 

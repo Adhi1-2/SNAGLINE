@@ -7,8 +7,6 @@ CONTINUUM ``REQUIRES_REVIEW`` event). They must never receive raw content: the
 
 from __future__ import annotations
 
-import urllib.error
-from typing import Protocol
 import threading
 import urllib.error
 import urllib.request
@@ -37,6 +35,8 @@ def format_sink_repr(type_name: str, **fields: object) -> str:
     """
     body = ", ".join(f"{name}={value!r}" for name, value in fields.items())
     return f"{type_name}({body})"
+
+
 def redacted_destination(url: str) -> str:
     """Return the destination URL without the parts that are the credential.
 
