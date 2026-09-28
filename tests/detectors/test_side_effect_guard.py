@@ -320,7 +320,9 @@ def test_fractional_tolerance_from_config_file_is_rejected(tmp_path):
     """The file layer hands the field straight through as a float (issue #328)."""
     path = tmp_path / "snagline.json"
     path.write_text(json.dumps({"side_effect_allowed_repeats": 1.5}))
-    with pytest.raises(ValueError, match="side_effect_allowed_repeats"):
+    # #437 type-checks file values before use, so a float where the field
+    # declares an int is rejected as a TypeError at load time.
+    with pytest.raises(TypeError, match="side_effect_allowed_repeats"):
         Config.load_file(str(path))
 
 
@@ -333,5 +335,7 @@ def test_fractional_tolerance_revalidated_after_full_layering(tmp_path):
     """
     path = tmp_path / "snagline.json"
     path.write_text(json.dumps({"side_effect_allowed_repeats": 1.5}))
-    with pytest.raises(ValueError, match="side_effect_allowed_repeats"):
+    # #437 type-checks file values before use, so a float where the field
+    # declares an int is rejected as a TypeError at load time.
+    with pytest.raises(TypeError, match="side_effect_allowed_repeats"):
         Config.resolve(str(path))
