@@ -416,6 +416,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step while no `goal_drift` risk ever fired. A negative `cusum_h` or
   `cusum_k` inverted the CUSUM and stormed a false positive on nearly every
   step. Both are now startup configuration errors naming the knob (#370).
+- The latency detector's calibrated start now gates on the profile's
+  `latency_count` rather than its total `count`. The seeded statistics
+  (`mean_latency` / `std_latency`) are computed from the latency-bearing subset
+  only, so a profile fitted from a stream whose adapter reported no timings --
+  which auto-calibration explicitly supports -- had `count=100,
+  latency_count=0, mean_latency=0.0`. Seeding from it froze onto a zero
+  baseline: the reference spread stays finite (sigma floors), but a real call
+  then measures as a large multiple of that floor and crosses the CUSUM
+  threshold on the first step, paging critical on step 0 of every episode.
+  Such tools now keep the learn-then-freeze warm-up (#348).
 
 ## [0.1.0] - 2026-08-27
 
