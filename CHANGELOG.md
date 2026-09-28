@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet.
 
 ### Fixed
+- `Monitor.ingest` now rejects a non-string `episode_id` up front instead of
+  risking a crash on an unhashable key (a `list`/`dict` decoded from an
+  untrusted body would raise `TypeError` before the fail-open guard, taking
+  down the sidecar handler thread): under `fail_open=True` the event is dropped
+  and logged once (bumping a new `events_dropped` counter); under
+  `fail_open=False` it raises a clear `TypeError`. `POST /events` also
+  400-rejects a batch whose `episode_id` or `step_id` is non-string before
+  ingest. The new `events_dropped` counter is exposed on both the classic JSON
+  and the default Prometheus `/metrics` surface
+  (`snagline_monitor_events_dropped_total`), so a dropped event stays
+  observable rather than silent (#479).
 - `snagline baseline --list-versions` is now honored on both the fit and
   `retrain` paths and is read-only everywhere: it lists and exits 0 without
   fitting, writing `baseline.json`, or storing a new version. Without

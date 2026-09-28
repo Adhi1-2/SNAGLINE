@@ -455,6 +455,12 @@ class SidecarMetricsCollector:
                 "Events ingested by the Monitor.",
             ),
             (
+                "events_dropped",
+                "snagline_monitor_events_dropped_total",
+                "Events dropped before ingest (e.g. a non-string episode_id);"
+                " fail-open (#479).",
+            ),
+            (
                 "risks_emitted",
                 "snagline_monitor_risks_emitted_total",
                 "Risks emitted by the Monitor.",

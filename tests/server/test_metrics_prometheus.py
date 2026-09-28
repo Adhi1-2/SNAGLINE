@@ -113,6 +113,7 @@ def test_empty_monitor_serves_valid_prometheus():
             "snagline_episodes_active",
             "snagline_ingest_seconds",
             "snagline_monitor_events_ingested_total",
+            "snagline_monitor_events_dropped_total",
             "snagline_monitor_risks_emitted_total",
             "snagline_monitor_detector_errors_total",
             "snagline_monitor_sink_errors_total",
@@ -359,3 +360,36 @@ def test_policy_errors_family_grows_on_an_enforcement_fault():
         )
     finally:
         _stop(server)
+
+
+def test_events_dropped_family_reaches_the_prometheus_surface():
+    """Issue #479: ``events_dropped`` (a non-string episode_id dropped fail-open)
+    must be visible on the *default* Prometheus surface, not only in the classic
+    JSON body. The counter was added to ``Monitor.metrics()`` but omitted from
+    the exposition families, so on the default (``metrics_format="prometheus"``)
+    ``/metrics`` a dropped event stayed silent -- defeating the point of the
+    counter. Drive the real Monitor counter and render through the real
+    collector so the two surfaces are proven to agree.
+    """
+    from snagline.events import StepEvent
+
+    monitor = Monitor.default(sinks=[])
+    # A non-string episode_id is rejected up front and dropped fail-open;
+    # StepEvent is an unvalidated dataclass, so this mirrors an untrusted body.
+    bad = StepEvent(
+        step_id="0",
+        episode_id=123,  # type: ignore[arg-type]
+        timestamp=1718300000.0,
+        action_type="tool_call",
+        action_signature="sig-dropped",
+    )
+    monitor.ingest(bad)
+    assert monitor.metrics()["events_dropped"] == 1
+
+    body = SidecarMetricsCollector().render_prometheus(monitor.metrics())
+    assert "# HELP snagline_monitor_events_dropped_total " in body
+    assert "# TYPE snagline_monitor_events_dropped_total counter" in body
+    samples = _parse_samples(body)
+    assert samples[("snagline_monitor_events_dropped_total", "")] == 1.0
+    # Both surfaces must agree.
+    assert monitor.metrics()["events_dropped"] == 1
