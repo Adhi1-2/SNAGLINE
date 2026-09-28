@@ -23,6 +23,7 @@ from snagline.risk import (
     FailureRisk,
 )
 from snagline.sinks.base import format_sink_repr
+from snagline.sinks.base import describe_failure, redacted_destination
 
 logger = logging.getLogger("snagline")
 
@@ -55,6 +56,9 @@ class SlackSink:
         return format_sink_repr(
             "SlackSink", timeout=self._timeout, min_severity=self._min
         )
+        # The URL is the credential, so the default attribute-dump repr would
+        # leak it into any diagnostic dump (issue #390).
+        return f"SlackSink({redacted_destination(self._url)!r})"
 
     def emit(self, risk: FailureRisk) -> None:
         if self._min is not None and _order(risk.severity) < _order(self._min):
@@ -77,8 +81,16 @@ class SlackSink:
         try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 resp.read()
-        except Exception:
-            logger.exception(
-                "snagline Slack sink POST to %s failed; ignoring (fail-open)",
-                self._url,
+        except Exception as exc:
+            # The URL is the credential -- a Slack incoming webhook embeds its
+            # secret as the final path segment -- and a failed POST is the
+            # moment an operator goes looking in the logs. PagerDuty already
+            # logs no routing key; this matches it (issue #390). The exception
+            # is named by class only: a ``URLError`` embeds the URL in its
+            # reason for some failures, and a traceback would carry it out
+            # with the log line.
+            logger.error(
+                "snagline Slack sink POST to %s failed (%s); ignoring (fail-open)",
+                redacted_destination(self._url),
+                describe_failure(exc),
             )

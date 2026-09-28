@@ -24,6 +24,7 @@ from snagline.risk import (
     FailureRisk,
 )
 from snagline.sinks.base import format_sink_repr
+from snagline.sinks.base import describe_failure, redacted_destination
 
 logger = logging.getLogger("snagline")
 
@@ -56,6 +57,9 @@ class WebhookSink:
         return format_sink_repr(
             "WebhookSink", timeout=self._timeout, min_severity=self._min
         )
+        # The URL is the credential, so the default attribute-dump repr would
+        # leak it into any diagnostic dump (issue #390).
+        return f"WebhookSink({redacted_destination(self._url)!r})"
 
     def emit(self, risk: FailureRisk) -> None:
         # A webhook is typically an escalation endpoint; unfiltered it fires
@@ -80,8 +84,17 @@ class WebhookSink:
         try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 resp.read()
-        except Exception:
-            logger.exception(
-                "snagline webhook sink POST to %s failed; ignoring (fail-open)",
-                self._url,
+        except Exception as exc:
+            # The URL is the credential -- it can carry basic auth
+            # (``user:pass@host``) and, for some providers, a secret path
+            # segment -- and a failed POST is exactly the moment an operator
+            # goes looking in the logs. Slack and PagerDuty already log
+            # nothing sensitive; this matches them (issue #390). The exception
+            # is named by class only: a ``URLError`` embeds the URL in its
+            # reason for some failures, and a traceback would carry it out
+            # with the log line.
+            logger.error(
+                "snagline webhook sink POST to %s failed (%s); ignoring (fail-open)",
+                redacted_destination(self._url),
+                describe_failure(exc),
             )
