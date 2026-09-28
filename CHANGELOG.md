@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   detector half on the snapshot and half on its live state -- the windows
   replaced while the counts and fired flags kept their live values, so the
   restored window contradicted the scaler position `observe` then used.
+  `ErrorCascadeDetector` published its windows and counts before parsing the
+  `consecutive` streaks and `fired` flags, so a malformed streak raised with
+  the snapshot's windows/counts already installed on top of the live streaks;
+  it now parses every field into locals before publishing, like its siblings.
 - Scaled-window restore now seeds the auto-scaler position it inferred, not
   just the window width. `load_state` sized a restored window from the
   position it read off the payload but rebuilt the scaler's `counts` dict

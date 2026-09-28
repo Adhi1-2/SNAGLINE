@@ -204,12 +204,19 @@ class ErrorCascadeDetector:
             new_counts[ep] = n
         for ep, n in counts.items():
             new_counts.setdefault(ep, int(n))
+        # Parse the streaks and fired flags into locals too, before publishing
+        # anything: ``int()`` on a malformed streak raises here, and publishing
+        # windows/counts first (then letting the streak parse blow up) would
+        # leave the detector half-restored -- snapshot windows/counts on top of
+        # live streaks/fired -- the exact non-transactional state this guards
+        # against (issue #402/#406).
+        new_consecutive = {ep: int(v) for ep, v in state.get("consecutive", {}).items()}
+        new_fired = {ep: bool(v) for ep, v in state.get("fired", {}).items()}
+        # Every field has parsed; publish the whole snapshot at once.
         self._windows = new_windows
         self._counts = new_counts
-        self._consecutive = {
-            ep: int(v) for ep, v in state.get("consecutive", {}).items()
-        }
-        self._fired = {ep: bool(v) for ep, v in state.get("fired", {}).items()}
+        self._consecutive = new_consecutive
+        self._fired = new_fired
         # The flag counts are derived from the windows above; a restored window
         # carries its own maxlen, so the cached sizes and counts are dropped and
         # recomputed on the first observe rather than trusted against a

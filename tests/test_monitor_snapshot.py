@@ -525,6 +525,36 @@ def test_error_cascade_load_state_is_atomic_when_a_count_is_bad():
     )
 
 
+def test_error_cascade_load_state_is_atomic_when_a_streak_is_bad():
+    """The count path raises *inside* the rebuild loop, before any publish, so
+    the sibling test above passes even with a non-transactional tail. The
+    ``consecutive`` streaks and ``fired`` flags are parsed *after* the windows
+    and counts, though: #406 published ``_windows``/``_counts`` first and only
+    then ran ``int()`` over the streaks, so a malformed streak raised with the
+    snapshot's windows/counts already installed on top of the live streaks --
+    the half-applied mix the transactional contract forbids.
+    """
+    detector = ErrorCascadeDetector(window_size=8)
+    for i in range(3):
+        detector.observe(_tool(i))
+    live = detector.dump_state()
+    assert live["windows"], "fixture: live state must exist to compare against"
+
+    bad = {
+        "windows": {"ep": [True, False]},
+        "counts": {"ep": 5},  # windows and counts both parse cleanly...
+        "consecutive": {"ep": "not-an-int"},  # ...the streak does not.
+    }
+    with pytest.raises(ValueError):
+        detector.load_state(bad)
+
+    after = detector.dump_state()
+    assert after == live, (
+        "a snapshot whose streak fails to parse must leave the detector on its "
+        f"live state, not windows/counts from the snapshot: {after} vs {live}"
+    )
+
+
 def test_error_cascade_load_state_applies_when_the_snapshot_is_good():
     """The atomicity change must not turn every load into a rejection, and the
     scaler position the window was sized from must seed ``_counts`` (issue
