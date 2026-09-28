@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   score-0.8 warning; values above `1.0` made the pre-breach warning
   unreachable. An out-of-range value is now a configuration error naming the
   knob (#317). 57305ac (fix(cli): make --list-versions read-only on fit and retrain paths)
+- Anthropic streaming (`stream=True`) auto-instrumentation now records token
+  usage. The SDK splits usage across raw events -- `message_start` carries
+  `input_tokens` on `event.message.usage` and `message_delta` carries the
+  running `output_tokens` on `event.usage`, while the terminal `message_stop`
+  event and the `Stream` object carry none -- so probing only the last chunk
+  always yielded `tokens_in=tokens_out=None`, silently disabling token-runaway
+  and budget coverage for every Anthropic streaming call. Usage is now
+  accumulated across the stream, with the pre-existing last-chunk/stream
+  extraction kept as a fallback for shapes that stamp usage on the terminal
+  chunk (#530).
 
 ## [0.1.0] - 2026-08-27
 

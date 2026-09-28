@@ -85,6 +85,38 @@ def _extract_tokens(result: Any) -> tuple[int | None, int | None]:
         return None, None
 
 
+def _stream_usage(chunk: Any) -> tuple[int | None, int | None]:
+    """Pull (input_tokens, output_tokens) contributions from one stream event.
+
+    Anthropic splits usage across the stream and never repeats it on the final
+    event (issue #530): ``message_start`` carries ``input_tokens`` (plus the
+    initial ``output_tokens``) on ``event.message.usage``, and ``message_delta``
+    carries the running ``output_tokens`` on ``event.usage``. ``message_stop``
+    -- the last event, i.e. ``_last`` -- and the ``Stream`` object carry no
+    usage at all, so probing only those (the pre-#530 behaviour) always yielded
+    ``None``. We read usage metadata only, never message content.
+    """
+    try:
+        message = getattr(chunk, "message", None)
+        usage = getattr(message, "usage", None) if message is not None else None
+        if usage is None:
+            usage = getattr(chunk, "usage", None)
+        if usage is None and isinstance(chunk, dict):
+            inner = chunk.get("message")
+            usage = (
+                inner.get("usage") if isinstance(inner, dict) else chunk.get("usage")
+            )
+        if usage is None:
+            return None, None
+        if isinstance(usage, dict):
+            return usage.get("input_tokens"), usage.get("output_tokens")
+        return getattr(usage, "input_tokens", None), getattr(
+            usage, "output_tokens", None
+        )
+    except Exception:
+        return None, None
+
+
 def _is_stream_request(kwargs: dict) -> bool:
     return kwargs.get("stream") is True
 
@@ -117,6 +149,8 @@ class _SyncStreamWrapper:
         self._stream = stream
         self._iter = iter(stream)  # type: ignore[call-overload]
         self._last: Any = None
+        self._tokens_in: int | None = None
+        self._tokens_out: int | None = None
         self._emitted = False
 
     def __iter__(self):
@@ -128,6 +162,7 @@ class _SyncStreamWrapper:
         try:
             chunk = next(self._iter)
             self._last = chunk
+            self._track_usage(chunk)
             return chunk
         except StopIteration:
             self._emit(error=False, error_type=None)
@@ -144,6 +179,13 @@ class _SyncStreamWrapper:
             with contextlib.suppress(Exception):
                 close()
 
+    def _track_usage(self, chunk: Any) -> None:
+        ti, to = _stream_usage(chunk)
+        if ti is not None:
+            self._tokens_in = ti
+        if to is not None:
+            self._tokens_out = to
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._stream, name)
 
@@ -152,10 +194,17 @@ class _SyncStreamWrapper:
             return
         self._emitted = True
         tokens_in, tokens_out = (None, None)
-        if not error and self._last is not None:
-            tokens_in, tokens_out = _extract_tokens(self._last)
+        if not error:
+            # Prefer usage accumulated across the stream (#530): Anthropic puts
+            # input_tokens on message_start and output_tokens on message_delta,
+            # and the last event (_last) / the Stream object carry none. Fall
+            # back to the last chunk / stream for shapes that do (e.g. a dict or
+            # an SDK that stamps usage on the terminal chunk).
+            tokens_in, tokens_out = self._tokens_in, self._tokens_out
             if tokens_in is None and tokens_out is None:
-                tokens_in, tokens_out = _extract_tokens(self._stream)
+                tokens_in, tokens_out = _extract_tokens(self._last)
+                if tokens_in is None and tokens_out is None:
+                    tokens_in, tokens_out = _extract_tokens(self._stream)
         _emit(
             self._monitor,
             self._counter,
@@ -186,6 +235,8 @@ class _AsyncStreamWrapper:
         except Exception:
             self._aiter = aiter(stream)  # type: ignore[arg-type]
         self._last: Any = None
+        self._tokens_in: int | None = None
+        self._tokens_out: int | None = None
         self._emitted = False
 
     def __aiter__(self):
@@ -197,6 +248,7 @@ class _AsyncStreamWrapper:
         try:
             chunk = await anext(self._aiter)  # type: ignore[arg-type]
             self._last = chunk
+            self._track_usage(chunk)
             return chunk
         except StopAsyncIteration:
             self._emit(error=False, error_type=None)
@@ -217,6 +269,13 @@ class _AsyncStreamWrapper:
                 if inspect.isawaitable(res):
                     await res
 
+    def _track_usage(self, chunk: Any) -> None:
+        ti, to = _stream_usage(chunk)
+        if ti is not None:
+            self._tokens_in = ti
+        if to is not None:
+            self._tokens_out = to
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._stream, name)
 
@@ -225,10 +284,17 @@ class _AsyncStreamWrapper:
             return
         self._emitted = True
         tokens_in, tokens_out = (None, None)
-        if not error and self._last is not None:
-            tokens_in, tokens_out = _extract_tokens(self._last)
+        if not error:
+            # Prefer usage accumulated across the stream (#530): Anthropic puts
+            # input_tokens on message_start and output_tokens on message_delta,
+            # and the last event (_last) / the Stream object carry none. Fall
+            # back to the last chunk / stream for shapes that do (e.g. a dict or
+            # an SDK that stamps usage on the terminal chunk).
+            tokens_in, tokens_out = self._tokens_in, self._tokens_out
             if tokens_in is None and tokens_out is None:
-                tokens_in, tokens_out = _extract_tokens(self._stream)
+                tokens_in, tokens_out = _extract_tokens(self._last)
+                if tokens_in is None and tokens_out is None:
+                    tokens_in, tokens_out = _extract_tokens(self._stream)
         _emit(
             self._monitor,
             self._counter,
