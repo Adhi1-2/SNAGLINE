@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shipped, but PyPI never surfaced the package as typed), plus
   `Environment :: Console` given the `snagline` console script. A packaging
   test now fails if the marker ships without the classifier (#456).
+- `[project.urls]` now includes a `Changelog` link pointing at `CHANGELOG.md`,
+  so PyPI renders a changelog entry in the project sidebar (#467).
 
 ### Fixed
 - The explicit `wrap_openai_client` / `wrap_anthropic_client` stream wrappers
