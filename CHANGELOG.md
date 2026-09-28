@@ -380,6 +380,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   promise against. It now resets to `continue` under `fail_open=True` (a genuine
   pause is re-issued on the next successful consult); `fail_open=False` still
   propagates (#523).
+- `TokenRunawayDetector`'s pre-breach warning is now scored `0.7` (was `0.8`),
+  so it derives `warning` severity instead of `critical`. At `0.8` merely
+  reaching `token_budget_warn_fraction` of the budget paged critical -- the same
+  band as the `1.0` breach it precedes -- and, under `policy="halt_webhook"`,
+  performed a halt consult (default `min_severity_for_halt=0.8`) that can return
+  an ABORT reserved for the actual breach. The score now matches the
+  `wall_clock_budget` twin envelope, which already grades its pre-breach signal
+  at `0.7` (#537).
 
 ## [0.1.0] - 2026-08-27
 
