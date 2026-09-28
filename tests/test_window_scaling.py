@@ -237,6 +237,33 @@ def test_cusum_refit_below_k_sigma_shift_stays_silent() -> None:
     )
 
 
+def test_cusum_refit_downward_shift_stays_silent() -> None:
+    """Issue #482 follow-up: the shift magnitude was taken with ``abs()``, so a
+    *downward* baseline move (latency improved) past ``k*sigma0`` surfaced a
+    "baseline shifted ... a sustained shift past the CUSUM's k-sigma
+    sensitivity" risk. But this CUSUM is one-sided (upper): it only ever alarms
+    on an upward shift, so a downward move is never a regression it was
+    alarming on and must stay silent. The report is now gated on the *signed*
+    move, so an improvement adopts the faster baseline without a false risk.
+    """
+    cfg = Config(cusum_min_samples=5, cusum_refit_every=10)
+    det = LatencyAnomalyDetector(config=cfg)
+    risks = []
+    ts = 0.0
+    for i in range(8):
+        risks.append(det.observe(_event(f"w{i}", ts, "s", latency_ms=100.0 + (i % 2))))
+        ts += 1.0
+    # A sustained ~30ms *improvement*: magnitude well past k*sigma0 (and even
+    # the old h*sigma0 bar), but downward -- the one-sided CUSUM never alarms.
+    for i in range(40):
+        risks.append(det.observe(_event(f"x{i}", ts, "s", latency_ms=70.0)))
+        ts += 1.0
+    assert all(r is None for r in risks), (
+        "a downward baseline move is an improvement, never a regression: "
+        f"got {[r.detail for r in risks if r is not None]}"
+    )
+
+
 def test_cusum_alarm_coincident_with_adoption_keeps_severity_and_detail() -> None:
     """Issue #244: the alarm was scored *after* the periodic re-fit advanced.
     When adoption landed on the same step as an alarm, adopt_candidate() had

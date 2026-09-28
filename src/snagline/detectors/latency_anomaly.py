@@ -283,13 +283,14 @@ class LatencyAnomalyDetector:
         """Advance periodic baseline re-fit bookkeeping (issue #92).
 
         Returns ``(shifted, old_mu, shift)``: ``shifted`` is True when the
-        frozen baseline itself moved past the CUSUM's sustained-shift
+        frozen baseline itself moved *upward* past the CUSUM's sustained-shift
         sensitivity (``k * sigma0``) -- the point beyond which a sustained shift
         accumulates a CUSUM alarm -- so "baseline drifted" is exactly as hard to
-        claim as a sustained deviation actually is. Reporting at the single-step
-        ``h * sigma`` bar instead left a band ``(k*sigma, h*sigma]`` where a
-        sustained regression the CUSUM was alarming on got adopted silently
-        (issue #482). The candidate baseline is adopted either way once measured
+        claim as a sustained deviation actually is. A downward move (latency
+        improved) is never a CUSUM alarm and stays silent. Reporting at the
+        single-step ``h * sigma`` bar instead left a band ``(k*sigma, h*sigma]``
+        where a sustained regression the CUSUM was alarming on got adopted
+        silently (issue #482). The candidate baseline is adopted either way once measured
         -- keeping a stale baseline would fight reality -- and the CUSUM
         accumulator restarts from zero against the new reference.
 
@@ -308,18 +309,24 @@ class LatencyAnomalyDetector:
             if state.learner_n >= self.min_samples:
                 assert state.mu0 is not None
                 old_mu = state.mu0
-                shift = abs(state.learner_mean - old_mu)
-                # The CUSUM alarms on a *sustained* shift once its accumulated
-                # standardized deviation crosses h, which happens for any shift
-                # whose per-step deviation beats the slack: shift/sigma0 > k,
-                # i.e. shift > k*sigma0. The old bar (h*sigma0) is the bar for a
-                # *single* step deviating -- an order of magnitude stricter --
-                # so a sustained regression in the band (k*sigma0, h*sigma0] got
-                # adopted (mu0 moved, cusum zeroed) yet emitted nothing,
-                # silently learning away a regression the CUSUM was actively
-                # alarming on. Reporting at the CUSUM's real sustained-shift
-                # sensitivity keeps "baseline drifted" as hard to claim as a
-                # sustained deviation actually is (issue #482).
+                # Signed, not abs: this CUSUM is one-sided (upper), so it only
+                # ever alarms on an *upward* shift. A downward move (latency
+                # improved) is never a regression the CUSUM was alarming on, so
+                # it must stay silent rather than surface a "baseline shifted"
+                # risk for an improvement (issue #482 follow-up).
+                shift = state.learner_mean - old_mu
+                # The CUSUM alarms on a *sustained* upward shift once its
+                # accumulated standardized deviation crosses h, which happens
+                # for any shift whose per-step deviation beats the slack:
+                # shift/sigma0 > k, i.e. shift > k*sigma0. The old bar
+                # (h*sigma0) is the bar for a *single* step deviating -- an
+                # order of magnitude stricter -- so a sustained regression in
+                # the band (k*sigma0, h*sigma0] got adopted (mu0 moved, cusum
+                # zeroed) yet emitted nothing, silently learning away a
+                # regression the CUSUM was actively alarming on. Reporting at
+                # the CUSUM's real sustained-shift sensitivity keeps "baseline
+                # drifted" as hard to claim as a sustained deviation actually
+                # is (issue #482).
                 bar = self.k * state.sigma0
                 state.adopt_candidate()
                 if shift > bar:

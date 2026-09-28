@@ -21,7 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the detector went quiet on a tool pinned several sigma above its healthy
   baseline. The report bar is now `k*sigma0`, matching the sustained-shift
   sensitivity the CUSUM actually alarms on, so "baseline drifted" is exactly as
-  hard to claim as a sustained deviation is (#482).
+  hard to claim as a sustained deviation is. The shift is measured *signed*, not
+  by magnitude: a downward move (latency improved) is never something this
+  one-sided (upper) CUSUM alarms on, so an improvement now adopts the faster
+  baseline silently instead of surfacing a spurious "baseline shifted" risk
+  (#482).
 - `snagline baseline --list-versions` is now honored on both the fit and
   `retrain` paths and is read-only everywhere: it lists and exits 0 without
   fitting, writing `baseline.json`, or storing a new version. Without
