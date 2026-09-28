@@ -158,6 +158,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   iterating it raced `observe()` with no lock on either side. `commit()` copies
   before the fsyncing save so a concurrent ingest cannot reshape the profile
   mid-serialization either (#357).
+- `snagline watch --episode-id X` now attributes ingested events to X. The
+  flag's help text promised attribution, but the parsed event's own
+  `episode_id` was ingested and the flag only named the zero-events fallback
+  at teardown, so an operator scoping a multi-tenant stdin stream to one
+  episode silently got per-event attribution with no warning. The override
+  is applied at parse time (via `dataclasses.replace`, since `StepEvent` is
+  frozen), so ingest and the teardown set see one id (#354).
 
 ## [0.1.0] - 2026-08-27
 
