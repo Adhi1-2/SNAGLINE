@@ -165,6 +165,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   episode silently got per-event attribution with no warning. The override
   is applied at parse time (via `dataclasses.replace`, since `StepEvent` is
   frozen), so ingest and the teardown set see one id (#354).
+- `SilentAbortDetector.load_state` no longer overwrites its own
+  `output_action_types` from the restored snapshot. That field is operator
+  configuration, not per-episode state, so a snapshot written on a
+  differently-configured host silently changed which final steps counted as
+  "output" on this one -- a real silent abort could be missed, or a clean
+  ending flagged. `dump_state` still records the field for diagnostics, as
+  `MeltdownDetector` does for `window_size`; only the restore path now
+  ignores it (#347).
 
 ## [0.1.0] - 2026-08-27
 
