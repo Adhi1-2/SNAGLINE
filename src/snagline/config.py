@@ -539,6 +539,34 @@ def _validated_score_thresholds(cfg: Config) -> None:
             )
 
 
+def _validated_cusum_slack(cfg: Config) -> None:
+    """Validate the CUSUM slack knobs (issue #421); raise when invalid.
+
+    ``cusum_k`` and ``token_cusum_k`` are the slack subtracted from the CUSUM
+    accumulator on every scored step. A negative slack *adds* ``|k|``
+    unconditionally, so the accumulator grows by ``|k|`` per step regardless of
+    what the data does and the alarm becomes unavoidable once enough steps
+    elapse -- a false-positive storm on perfectly healthy traffic (measured: 20
+    risks in 30 steps on an exactly constant 100 tokens/step, score climbing to
+    1.0). No data pattern prevents it and no baseline accuracy helps, so the
+    value must be rejected rather than tolerated.
+
+    ``0`` is legitimate: it means "no slack" -- the accumulator is never
+    decayed, so the detector is maximally sensitive but not inverted. The bound
+    is therefore open at zero, matching #371's treatment of
+    ``semantic_drift_cusum_k``.
+    """
+    for name in ("cusum_k", "token_cusum_k"):
+        value = getattr(cfg, name)
+        if value < 0:
+            raise ValueError(
+                f"{name} must be >= 0; got {value!r}. The slack is subtracted "
+                "from the CUSUM accumulator each scored step, so a negative "
+                "value adds |k| unconditionally and the alarm fires on healthy "
+                "traffic once enough steps elapse -- no data pattern prevents it"
+            )
+
+
 @dataclass
 class Config:
     # Loop detector
@@ -856,6 +884,9 @@ class Config:
         # integer occurrence count it is compared against, so the duplicate
         # non-idempotent action detector never fires at all.
         _validated_side_effect_guard(self)
+        # Issue #421: the CUSUM slack. A negative value inverts the accumulator
+        # and storms healthy traffic (see _validated_cusum_slack).
+        _validated_cusum_slack(self)
 
     # --- 12-factor configuration (project.md §5.4, ATTACH_ANY_SYSTEM P0) -----
     @classmethod
@@ -1030,4 +1061,7 @@ class Config:
         # fractional value in a config file must abort startup with a clear
         # error, not silently blind the duplicate-action guard for the run.
         _validated_side_effect_guard(cfg)
+        # Issue #421: SNAGLINE_CUSUM_K=-1.0 must abort startup with a clear
+        # error, not storm false positives from the first post-warm-up step.
+        _validated_cusum_slack(cfg)
         return cfg
