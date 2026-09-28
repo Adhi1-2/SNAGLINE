@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet.
 
 ### Fixed
+- `snagline.auto` now extracts token counts on the **non-streaming** path, so a
+  host instrumented via `instrument_openai` / `instrument_anthropic` /
+  `wrap_client` gets the same token-runaway and budget coverage as the explicit
+  adapters. The non-streaming success path emitted `tokens_in=tokens_out=None`
+  even though `result.usage` was present, and `TokenRunawayDetector.observe`
+  early-returns when both are None — so the zero-config entrypoint the README
+  pushes had no token-burn coverage at all, silently. Both the sync and async
+  OpenAI/Anthropic paths now pass the extracted counts through, mirroring the
+  stream wrappers (#529).
 - `snagline baseline --list-versions` is now honored on both the fit and
   `retrain` paths and is read-only everywhere: it lists and exits 0 without
   fitting, writing `baseline.json`, or storing a new version. Without

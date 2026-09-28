@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from snagline.auto.anthropic import instrument_anthropic, wrap_client
 
 
@@ -11,6 +13,19 @@ class _SpyMonitor:
 
     def ingest(self, event) -> None:
         self.events.append(event)
+
+
+class _Usage:
+    def __init__(self, input_tokens, output_tokens):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class _Resp:
+    """A non-streaming Messages response carrying usage, like the real SDK."""
+
+    def __init__(self, input_tokens=900, output_tokens=210):
+        self.usage = _Usage(input_tokens, output_tokens)
 
 
 class _FakeMessages:
@@ -78,3 +93,43 @@ def test_instrument_anthropic_without_sdk_is_safe_noop(monkeypatch, caplog):
 def test_instrument_anthropic_with_explicit_client():
     mon = _SpyMonitor()
     assert instrument_anthropic(mon, client=_FakeClient()) is True
+
+
+def test_nonstreaming_success_extracts_tokens():
+    # Issue #529: the non-streaming messages.create path emitted tokens
+    # in/out=None despite result.usage being present (input_tokens/
+    # output_tokens), starving the token-runaway/budget detectors.
+    class _UsageMessages:
+        def create(self, *, model="claude", messages=None, **kw):
+            return _Resp(input_tokens=900, output_tokens=210)
+
+    class _Client:
+        messages = _UsageMessages()
+
+    mon = _SpyMonitor()
+    client = wrap_client(mon, _Client())
+    client.messages.create(model="claude-3-5-sonnet", messages=[{"role": "user"}])
+    assert len(mon.events) == 1
+    ev = mon.events[0]
+    assert ev.tokens_in == 900
+    assert ev.tokens_out == 210
+
+
+def test_nonstreaming_async_success_extracts_tokens():
+    # Same for the async create path (auto/anthropic.py::_async).
+    class _AsyncUsageMessages:
+        async def create(self, *, model="claude", messages=None, **kw):
+            return _Resp(input_tokens=77, output_tokens=8)
+
+    class _Client:
+        messages = _AsyncUsageMessages()
+
+    mon = _SpyMonitor()
+    client = wrap_client(mon, _Client())
+    asyncio.run(
+        client.messages.create(model="claude-3-5-sonnet", messages=[{"role": "user"}])
+    )
+    assert len(mon.events) == 1
+    ev = mon.events[0]
+    assert ev.tokens_in == 77
+    assert ev.tokens_out == 8
