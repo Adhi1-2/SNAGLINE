@@ -25,7 +25,7 @@ from snagline.risk import (
     SEVERITY_WARNING,
     FailureRisk,
 )
-from snagline.sinks.base import bounded_post
+from snagline.sinks.base import bounded_post, format_sink_repr
 
 logger = logging.getLogger("snagline")
 
