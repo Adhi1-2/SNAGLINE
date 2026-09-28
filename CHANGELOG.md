@@ -150,6 +150,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timeout, so a negative one starved the shutdown drain. `max_batch` is still
   clamped, since any size still paces -- a non-positive interval has no
   meaningful reading (#358).
+- `BaselineCollector.snapshot()` now returns a `copy.deepcopy` of the live
+  profile under a lock shared with `observe()`/`commit()`, instead of the
+  accumulator itself. The name promises a point-in-time view, but a caller that
+  inspected and mutated the result (`p.tools.clear()` while deciding whether to
+  `commit()`) corrupted the profile a later `commit()` persisted, and a reader
+  iterating it raced `observe()` with no lock on either side. `commit()` copies
+  before the fsyncing save so a concurrent ingest cannot reshape the profile
+  mid-serialization either (#357).
 
 ## [0.1.0] - 2026-08-27
 
