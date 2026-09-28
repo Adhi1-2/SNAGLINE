@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   score-0.8 warning; values above `1.0` made the pre-breach warning
   unreachable. An out-of-range value is now a configuration error naming the
   knob (#317). 57305ac (fix(cli): make --list-versions read-only on fit and retrain paths)
+- `TokenRunawayDetector`'s pre-breach warning is now scored `0.7` (was `0.8`),
+  so it derives `warning` severity instead of `critical`. At `0.8` merely
+  reaching `token_budget_warn_fraction` of the budget paged critical -- the same
+  band as the `1.0` breach it precedes -- and, under `policy="halt_webhook"`,
+  performed a halt consult (default `min_severity_for_halt=0.8`) that can return
+  an ABORT reserved for the actual breach. The score now matches the
+  `wall_clock_budget` twin envelope, which already grades its pre-breach signal
+  at `0.7` (#537).
 
 ## [0.1.0] - 2026-08-27
 

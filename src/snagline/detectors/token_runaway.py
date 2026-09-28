@@ -105,7 +105,12 @@ class TokenRunawayDetector:
                     return FailureRisk(
                         ep,
                         event.step_id,
-                        0.8,
+                        # 0.7 keeps the pre-breach signal inside the "warning"
+                        # severity band (>= 0.8 derives critical); the breach
+                        # above is the critical. Mirrors wall_clock_budget's
+                        # twin envelope (monitor.py) -- the two must grade
+                        # their pre-breach signal identically (issue #537).
+                        0.7,
                         "token_runaway",
                         f"episode at {total / self.budget:.0%} of its "
                         f"{self.budget}-token budget",

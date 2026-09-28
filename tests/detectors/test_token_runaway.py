@@ -58,12 +58,29 @@ def test_envelope_warns_once_then_breaches_once():
     triggers = [(r.trigger, r.score) for r in risks]
     # Step 3 (total 900 >= 80% of 1000): one warning. Step 4 (total 1200):
     # one breach. Step 5: silence -- envelope emits at most once per threshold.
-    assert ("token_runaway", 0.8) in triggers
+    assert ("token_runaway", 0.7) in triggers
     assert ("budget_breach", 1.0) in triggers
     assert triggers.count(("budget_breach", 1.0)) == 1
     assert triggers.index(("budget_breach", 1.0)) > triggers.index(
-        ("token_runaway", 0.8)
+        ("token_runaway", 0.7)
     )
+
+
+def test_pre_breach_warning_stays_in_warning_severity_band():
+    """Issue #537: the pre-breach warning must derive ``warning`` severity, not
+    ``critical`` -- a 0.8 score reached the >= 0.8 critical band, so merely
+    hitting 80% of the budget paged critical (and, under policy=halt_webhook,
+    performed a halt consult reserved for the breach). The breach that follows
+    stays critical. Mirrors the wall_clock_budget twin."""
+    from snagline.risk import SEVERITY_CRITICAL, SEVERITY_WARNING
+
+    d = TokenRunawayDetector(budget_total_tokens=1000, warn_fraction=0.8)
+    risks = []
+    for step in range(4):  # 300, 600, 900 (warn), 1200 (breach)
+        risks.extend(_run(d, [_event(step, 300)]))
+    by_trigger = {r.trigger: r for r in risks}
+    assert by_trigger["token_runaway"].severity == SEVERITY_WARNING
+    assert by_trigger["budget_breach"].severity == SEVERITY_CRITICAL
 
 
 def test_events_without_tokens_are_ignored():
