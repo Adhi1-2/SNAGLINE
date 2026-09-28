@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Authorization` is attacker-controlled, so that would have turned an
   unauthenticated probe into a handler crash (#375).
 
+### Changed
+- CI hygiene: the accuracy-gate comment in `ci.yml` now says "109-episode
+  corpus" to match the committed fixtures (68 labeled + 41 healthy controls,
+  the README already reflected 109) (#470); `stale.yml` no longer exempts a
+  `security` label that the repo does not define — the token was inert, so the
+  exempt lists now name only labels that exist (`help wanted`, `good first
+  issue`) (#471).
+
 ### Fixed
 - The explicit `wrap_openai_client` / `wrap_anthropic_client` stream wrappers
   now support the documented `with stream as s:` and `async with stream as s:`
