@@ -548,6 +548,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   global mode since `BaseChatModel.invoke` delegates to `self.generate`, and
   reports a present-but-reshaped SDK as a monitoring failure rather than an
   absent dependency (#339).
+  which never logged its routing key. Their `__repr__` is redacted too, since
+  the default attribute dump would leak the same URL into any diagnostic
+  capture (#390).
+- `snagline serve --max-body-bytes 0` (or any negative) is now rejected at
+  startup with exit 2 instead of being accepted. `do_POST` compares the
+  declared length against the cap with a strict `>`, so a cap of 0 rejects
+  *every* POST with 413: the sidecar came up cleanly, reported `GET /health`
+  green, and silently dropped 100% of inbound telemetry. The neighbouring
+  `max_risks` knob was already clamped with `max(1, ...)` while this one was
+  not, and the flag has no `None`/unlimited value -- worse, `--episode-ttl-seconds`
+  on the next line documents `0 disables`, so 0 was the value an operator
+  reaching for "no body limit" was most likely to type. `make_handler` /
+  `make_server` now raise on a non-positive cap too, so library callers cannot
+  build a green-but-deaf server either (#394).
+- `BatchingSink.close()` no longer hangs forever when the wrapped sink is
+  stuck. It joined the flusher for `flush_interval + 1.0` s and then called
+  `_flush()` unconditionally, which takes `_delivery_lock` with no bound -- so
+  when the background thread was parked inside `_deliver` on a hung endpoint,
+  shutdown parked on the very lock that thread held. The flusher clears the
+  queue before taking the lock, so the deadlock needed an alert enqueued
+  *while* it was parked, which is what a live alert stream does; a hung
+  shutdown produced no diagnostic at all. `close()` now waits once more with
+  the same budget and, if delivery still does not return, logs how many alerts
+  went undelivered instead of blocking indefinitely (#393). The acquired lock
+  is also now released *before* the fallback `_flush()`: `_flush` -> `_deliver`
+  re-acquires that non-reentrant lock, so holding it across the call
+  self-deadlocked shutdown whenever the probe succeeded and the queue was
+  non-empty -- reachable whenever a delivery finished just as the deadline
+  expired and an alert arrived mid-shutdown.
 
 ## [0.1.0] - 2026-08-27
 

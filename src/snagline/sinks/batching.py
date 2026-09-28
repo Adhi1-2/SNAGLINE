@@ -12,14 +12,6 @@ rate limiter.
 wakes the flusher immediately rather than delivering on the caller's thread --
 ``emit`` stays non-blocking even when the wrapped sink is slow.
 
-A non-positive ``flush_interval`` is rejected at construction rather than
-clamped: ``_wake.wait`` returns immediately for one, so the flusher spins
-through an empty queue hundreds of thousands of times per second, pinning a
-full core for the life of the process while alerts still deliver and nothing
-else looks wrong. Unlike ``max_batch`` (clamped, since any size still paces)
-a non-positive interval has no meaningful reading -- the sink's whole point
-is pacing (issue #358).
-
 Fail-open: a delivery error is swallowed (never blocks ingest or the queue).
 ``close()`` drains the queue before returning, so a clean shutdown inside one
 ``flush_interval`` of a detection still delivers the alert.
@@ -29,11 +21,14 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import logging
 import threading
 import time
 
 from snagline.risk import FailureRisk
-from snagline.sinks.base import AlertSink, format_sink_repr
+from snagline.sinks.base import AlertSink
+
+logger = logging.getLogger("snagline")
 
 
 class BatchingSink:
@@ -72,14 +67,6 @@ class BatchingSink:
         self._wake = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-
-    def __repr__(self) -> str:
-        return format_sink_repr(
-            "BatchingSink",
-            inner=self._sink,
-            max_batch=self._max_batch,
-            flush_interval=self._flush_interval,
-        )
 
     def emit(self, risk: FailureRisk) -> None:
         # Non-blocking enqueue; the background thread does the actual delivery.
@@ -139,7 +126,33 @@ class BatchingSink:
         self._stop.set()
         self._wake.set()  # unblock the interval wait so the drain happens now
         self._thread.join(timeout=self._flush_interval + 1.0)
-        # If the thread did not finish its drain within the join timeout, flush
-        # on the caller's thread. ``_flush`` is a no-op on an empty queue, so
-        # this is safe either way.
-        self._flush()
+        if not self._thread.is_alive():
+            # The flusher drained and exited: pick up anything enqueued after
+            # its final pass. ``_flush`` is a no-op on an empty queue.
+            self._flush()
+            return
+        # The flusher is still inside ``_deliver`` -- the wrapped sink is hung
+        # (a network sink whose ``urlopen`` never returns, e.g. an unresolvable
+        # host against a black-holed resolver; ``emit``'s timeout does not
+        # bound DNS). It already cleared the queue, but alerts kept arriving,
+        # so the fallback flush has real work. Wait once more for a
+        # slow-but-progressing delivery instead of hanging forever, and make an
+        # undelivered shutdown observable rather than silent (issue #393).
+        #
+        # The acquire is a readiness probe -- "the flusher is no longer inside
+        # _deliver" -- and must be released *before* the flush. ``_flush`` ->
+        # ``_deliver`` re-acquires this lock, and ``Lock`` is not reentrant, so
+        # holding it across the call makes that re-acquire block forever with
+        # no timeout covering it: shutdown hangs on exactly the path this
+        # method exists to bound. ``_flush``'s snapshot-and-clear under the
+        # queue lock keeps the two flush paths from double-delivering.
+        if self._delivery_lock.acquire(timeout=self._flush_interval + 1.0):
+            self._delivery_lock.release()
+            self._flush()
+        else:
+            logger.warning(
+                "snagline BatchingSink: shutdown timed out after %.1fs with "
+                "%d alert(s) undelivered; the wrapped sink did not return",
+                self._flush_interval + 1.0,
+                len(self._queue),
+            )
