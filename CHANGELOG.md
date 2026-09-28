@@ -173,6 +173,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ending flagged. `dump_state` still records the field for diagnostics, as
   `MeltdownDetector` does for `window_size`; only the restore path now
   ignores it (#347).
+- A `compaction` event carrying no usable pins of its own (missing or empty
+  `pinned`, or a malformed non-collection value) no longer discards an
+  in-flight grace window from an earlier pin-bearing compaction. Such an event
+  describes a truncation that tracked no constraints and says nothing about
+  the previous window's pins, but the pending set was unconditionally
+  overwritten with `None`, so a `governance_decay` risk that had not yet
+  reached its deadline vanished silently. The previous window now stands and
+  can still fire or be confirmed; only a compaction that pins constraints of
+  its own replaces it (#356).
 
 ## [0.1.0] - 2026-08-27
 
