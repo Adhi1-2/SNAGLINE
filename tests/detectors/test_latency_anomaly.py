@@ -144,6 +144,32 @@ def test_load_state_rejects_a_non_numeric_counter():
     assert isinstance(d._states[("ep", "search")].n, int)
 
 
+def test_load_state_coerces_a_numeric_string_counter():
+    # #424 follow-up: ``from_snapshot`` coerces the seven core counters to their
+    # real types, but ``load_state`` then re-assigned them straight from the raw
+    # dict, silently undoing the coercion. A snapshot whose counter is a numeric
+    # *string* (``"n": "3"`` -- structurally complete, ``int()``-parseable, so
+    # ``from_snapshot`` accepts it) was stored as a ``str`` and poisoned
+    # ``learn_only``'s ``self.n += 1`` on the very next event, exactly the wedge
+    # #424 set out to close. The core counters must stay coerced.
+    d1 = LatencyAnomalyDetector(min_samples=15)
+    for i in range(3):
+        d1.observe(_event(i, 100.0))
+    key = ("ep", "search")
+    assert not d1._states[key].frozen, "this test needs a live warm-up state"
+    snap = d1.dump_state()
+    snap["states"][0][1]["n"] = str(snap["states"][0][1]["n"])  # "3", a numeric str
+
+    d2 = LatencyAnomalyDetector(min_samples=15)
+    d2.load_state(snap)
+    # Coercion held: the counter is an int, not the raw str it was written as.
+    assert isinstance(d2._states[key].n, int)
+    assert d2._states[key].n == 3
+    # ...and the pair is still scorable rather than wedged on ``str + int``.
+    d2.observe(_event(3, 100.0))
+    assert d2._states[key].n == 4
+
+
 def test_load_state_round_trips_a_mid_warmup_state():
     # ``mu0`` is the one field that may legitimately be None: a state captured
     # before ``freeze`` has no baseline yet. A bare ``float()`` validation would

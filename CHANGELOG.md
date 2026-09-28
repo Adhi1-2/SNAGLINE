@@ -35,7 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a `TypeError`, which `ingest` swallows fail-open, so the episode scored
   nothing for the rest of its life and the fault was logged only once. Such an
   entry is now rejected at restore, where the #417 containment already handles
-  it (#424).
+  it, and a value written as a numeric *string* is coerced to its real type
+  rather than stored raw: `LatencyAnomalyDetector.load_state` re-assigned the
+  seven core counters straight from the snapshot right after `from_snapshot`
+  had coerced them, silently undoing the coercion for exactly the
+  int/float-parseable-but-mistyped values it was meant to fix; the redundant
+  re-assignment is gone so the coercion holds (#424).
 - `episode_token_budget` and `token_budget_warn_fraction` are now range-checked
   at construction and after env/file layering, like the horizon and stagnation
   knobs. A zero or negative budget used to fire a score-1.0 `budget_breach` on

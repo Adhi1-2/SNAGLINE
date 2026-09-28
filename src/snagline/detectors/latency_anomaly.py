@@ -391,13 +391,13 @@ class LatencyAnomalyDetector:
 
     @classmethod
     def _state_from_dict(cls, s: _WelfordCUSUM, raw: dict[str, Any]) -> None:
-        s.n = raw["n"]
-        s.mean = raw["mean"]
-        s._m2 = raw["m2"]
-        s.cusum = raw["cusum"]
-        s.mu0 = raw["mu0"]
-        s.sigma0 = raw["sigma0"]
-        s.frozen = raw["frozen"]
+        # The seven core Welford/CUSUM counters (n, mean, m2, cusum, mu0,
+        # sigma0, frozen) are already parsed *and coerced to their real types*
+        # by ``from_snapshot``; re-assigning them raw here would silently undo
+        # that coercion (a numeric-string ``"n": "20"`` would be stored as a
+        # str and poison ``learn_only``'s ``self.n += 1`` on the next event --
+        # exactly the failure #424 set out to prevent). Only the re-fit
+        # bookkeeping is set here, and it is coerced in place.
         # Tolerant .get(): pre-#92 snapshots carry no re-fit fields, and a
         # detector configured without refits must accept one written with
         # them (the knob is read from the live config, not the snapshot).
