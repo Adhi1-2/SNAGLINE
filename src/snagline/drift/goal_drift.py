@@ -20,9 +20,14 @@ vector of floats inside the baseline profile.
 Dependency discipline (section 1.1): this module imports cleanly with no
 third-party packages installed. ``sentence_transformers`` is imported only
 inside :meth:`SemanticGoalDriftDetector._make_default_model_loader`, lazily,
-on first use, and only when no explicit ``embedder`` was injected. Every
-failure on that path (extra missing, model download/load failing) or during
-inference is caught, logged once, and leaves the detector permanently inert:
+on first use, and only when no explicit ``embedder`` was injected. A setup
+failure on that path (extra missing, model download/load failing) or a
+baseline/embedder dimension mismatch is caught, logged once, and leaves the
+detector permanently inert. A *transient* inference exception (the loaded
+embedder raising mid-run) is instead swallowed fail-open and the step is
+skipped, so a backend that recovers resumes scoring -- but it too is logged
+only once per fault, never once per step, so a persistently-broken embedder
+cannot flood the host's logs with a traceback on every event. Either way,
 monitoring must never crash or stall the host agent (section 1.2).
 
 Performance (section 1.5): O(embedding dim) work per step for the running
@@ -98,8 +103,12 @@ class SemanticGoalDriftDetector:
     """Embedding-centroid drift detector emitting the ``goal_drift`` trigger.
 
     Fail-open twice over: :meth:`observe` never raises, and a broken
-    embedding backend degrades to permanent inertness (logged once), not to
-    repeated retries or a crashed monitor. Fires at most after
+    embedding backend never disrupts the host. A *setup* failure (missing
+    extra, model load) latches the detector permanently inert after one
+    attempt; a *transient* inference exception is swallowed and the step
+    skipped so a recovering backend resumes, and in either case the fault is
+    logged only once -- never a traceback per step (cf. the ConsoleSink
+    warn-once latch, issue #327). Fires at most after
     ``semantic_drift_min_samples`` live steps, only when the cosine deviation
     from the healthy centroid persists (CUSUM gate with slack ``k`` and alarm
     ``h``), then re-arms so a still-drifting episode re-alarms later.
@@ -141,20 +150,33 @@ class SemanticGoalDriftDetector:
         # otherwise resolve lazily exactly once on first use.
         self._resolved = embedder is not None
         self._episodes: dict[str, _LiveState] = {}
+        # Warn-once latch for transient inference faults: without it a broken
+        # embedder that keeps raising logs a full traceback on every step,
+        # contradicting the "logged once" contract (issue #527; mirrors
+        # ConsoleSink's _fault_logged, issue #327). Reset on the next clean
+        # observe so a recovered backend re-arms the warning if it fails again.
+        self._inference_fault_logged = False
 
     def observe(self, event: StepEvent) -> FailureRisk | None:
         """Score one step; fail-open wrapper around the semantic path.
 
         Never raises: any internal error is logged here and by the Monitor,
-        then ignored (project.md section 1.2).
+        then ignored (project.md section 1.2). A transient inference fault is
+        logged once (not once per step) and the latch resets on the next clean
+        step, so a recovering backend re-arms the warning without flooding.
         """
         try:
-            return self._observe(event)
+            result = self._observe(event)
         except Exception:
-            logger.exception(
-                "snagline: semantic_goal_drift raised; ignoring (fail-open)"
-            )
+            if not self._inference_fault_logged:
+                self._inference_fault_logged = True
+                logger.exception(
+                    "snagline: semantic_goal_drift raised; ignoring "
+                    "(fail-open); further faults are silent until it recovers"
+                )
             return None
+        self._inference_fault_logged = False
+        return result
 
     def reset(self, episode_id: str) -> None:
         """Drop all per-episode state (running centroid and CUSUM debt)."""

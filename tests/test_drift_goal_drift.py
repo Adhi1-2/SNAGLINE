@@ -350,6 +350,58 @@ def test_fail_open_embedder_exceptions_swallowed_and_logged(caplog):
     assert any("semantic_goal_drift" in r.message for r in caplog.records)
 
 
+def test_repeated_inference_failure_logs_once_not_every_step(caplog):
+    # Contract (module + class docstring): a broken embedding backend is
+    # "logged once", never a traceback per step. A persistently-raising
+    # embedder over a long episode must not flood the host's logs -- the same
+    # warn-once discipline ConsoleSink applies to a dead stream (issue #327)
+    # and that #386 flags as a bug for the ESN CUSUM detector.
+    calls = {"n": 0}
+
+    def boom(event: StepEvent) -> list[float]:
+        calls["n"] += 1
+        raise RuntimeError("inference backend exploded")
+
+    det = _detector(_semantic_baseline(), embedder=boom)
+    with caplog.at_level(logging.ERROR, logger="snagline"):
+        for ev in _healthy(30, episode="flood"):
+            assert det.observe(ev) is None  # still fail-open, still None
+    faults = [r for r in caplog.records if "semantic_goal_drift" in r.message]
+    assert len(faults) == 1, (
+        f"inference fault must be logged once, not per step; got {len(faults)}"
+    )
+    # Fail-open stays fail-open: the detector is NOT latched inert (unlike a
+    # setup failure), it keeps trying so a transient fault can recover.
+    assert calls["n"] == 30
+
+
+def test_recovered_embedder_rearms_the_fault_warning(caplog):
+    # The warn-once latch resets on a clean step, so an embedder that fails,
+    # recovers, then fails again logs each distinct fault episode once rather
+    # than staying silent forever after the first.
+    state = {"broken": True}
+
+    def flaky(event: StepEvent) -> list[float]:
+        if state["broken"]:
+            raise RuntimeError("backend down")
+        return list(ALL_VECS[event.tool_name])  # type: ignore[index]
+
+    det = _detector(_semantic_baseline(), embedder=flaky)
+    with caplog.at_level(logging.ERROR, logger="snagline"):
+        for ev in _healthy(5, episode="r"):
+            assert det.observe(ev) is None
+        state["broken"] = False  # backend recovers
+        for ev in _healthy(3, episode="r"):
+            det.observe(ev)
+        state["broken"] = True  # backend fails again
+        for ev in _healthy(5, episode="r"):
+            assert det.observe(ev) is None
+    faults = [r for r in caplog.records if "semantic_goal_drift" in r.message]
+    assert len(faults) == 2, (
+        f"each fault episode logs once after recovery; got {len(faults)}"
+    )
+
+
 def test_model_load_failure_latches_inert_after_exactly_one_attempt(caplog):
     attempts = {"n": 0}
 
