@@ -147,8 +147,12 @@ class SinkBusyError(RuntimeError):
     """
 
 
-def bounded_post(request: urllib.request.Request, timeout: float) -> None:
-    """POST ``request`` and drain the reply, bounded by a wall-clock deadline.
+def bounded_post(
+    request: urllib.request.Request,
+    timeout: float,
+    max_bytes: int | None = None,
+) -> bytes:
+    """POST ``request`` and return the reply body, bounded by a wall-clock deadline.
 
     ``urllib.request.urlopen``'s ``timeout=`` is applied per socket operation,
     and only *after* ``socket.create_connection`` has finished name
@@ -171,7 +175,14 @@ def bounded_post(request: urllib.request.Request, timeout: float) -> None:
 
     Redirects are refused rather than followed, for the same reason: a followed
     3xx is reported as a 2xx delivery whose payload never arrived (see
-    ``_NoRedirect``).
+    ``_NoRedirect``). For the halt webhook this is sharper still -- the reply
+    is parsed into an enforcement directive, so a followed redirect would let
+    the decision come from a server the operator never configured (issue #416).
+
+    ``max_bytes`` caps the read, so a malicious or broken endpoint cannot make
+    the exchange unbounded by streaming an endless body. The sinks pass
+    ``None`` because they discard the reply anyway; the halt webhook passes
+    its existing response cap.
 
     Raises whatever the exchange raised once that is known, or ``TimeoutError``
     if the deadline passed first. Raises ``SinkBusyError`` without starting the
@@ -197,7 +208,9 @@ def bounded_post(request: urllib.request.Request, timeout: float) -> None:
     def _post() -> None:
         try:
             with _opener.open(request, timeout=timeout) as resp:
-                resp.read()
+                outcome["body"] = (
+                    resp.read(max_bytes) if max_bytes is not None else resp.read()
+                )
         except Exception as exc:  # reported to the caller below
             outcome["error"] = exc
         finally:
@@ -219,3 +232,4 @@ def bounded_post(request: urllib.request.Request, timeout: float) -> None:
         )
     if "error" in outcome:
         raise outcome["error"]
+    return outcome.get("body", b"")
