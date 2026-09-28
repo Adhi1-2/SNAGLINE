@@ -589,6 +589,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `HTTPError` for the `3xx`, which is logged fail-open as any other delivery
   failure is; a `307`/`308` already raised, so the failure mode is now consistent
   across redirect codes instead of silent for exactly the common ones (#389).
+- `bounded_post` now caps how many sink POSTs may be in flight across the
+  process at once. The `#395` deadline abandons a stalled POST but cannot
+  cancel it: the worker thread, and the socket it holds, lives on until the
+  exchange resolves on its own. Against a merely slow endpoint that thread
+  drains and exits shortly after, but against a *dead* one -- a black hole
+  that neither answers nor resets -- every alert spawned a worker that never
+  returned, so a monitor under sustained load accumulated one parked thread and
+  file descriptor per emit without bound (#423). A process-global non-blocking
+  semaphore (`_MAX_INFLIGHT_POSTS`, default 64) now bounds the parked workers:
+  a worker holds a slot for its whole life and frees it in a `finally`, so the
+  ceiling counts live threads rather than calls. When every slot is taken the
+  next POST is dropped with a distinct `SinkBusyError` -- fast, and logged
+  fail-open at the sink like any other delivery failure -- rather than adding
+  another parked thread. The cap is deliberately generous, so only a genuinely
+  dead endpoint under load ever trips it (#423).
 
 ## [0.1.0] - 2026-08-27
 
