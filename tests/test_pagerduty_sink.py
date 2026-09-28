@@ -24,7 +24,7 @@ def _risk(severity: str = SEVERITY_INFO, **kw) -> FailureRisk:
 
 def test_pagerduty_posts_trigger_event():
     sink = PagerDutySink("RKEY")
-    with mock.patch("urllib.request.urlopen") as urlopen:
+    with mock.patch("snagline.sinks.base._opener.open") as urlopen:
         sink.emit(_risk(SEVERITY_CRITICAL))
     assert urlopen.called
     req = urlopen.call_args[0][0]
@@ -42,7 +42,7 @@ def test_custom_details_is_nested_in_payload_not_top_level():
     # PagerDuty ignores unknown top-level keys, so a top-level custom_details
     # silently drops episode_id/step_id/score/trigger from the incident.
     sink = PagerDutySink("RKEY")
-    with mock.patch("urllib.request.urlopen") as urlopen:
+    with mock.patch("snagline.sinks.base._opener.open") as urlopen:
         sink.emit(_risk(SEVERITY_CRITICAL))
     body = json.loads(urlopen.call_args[0][0].data.decode())
     assert "custom_details" not in body  # never at the top level
@@ -57,7 +57,7 @@ def test_custom_details_is_nested_in_payload_not_top_level():
 
 def test_pagerduty_maps_info_severity():
     sink = PagerDutySink("RKEY")
-    with mock.patch("urllib.request.urlopen") as urlopen:
+    with mock.patch("snagline.sinks.base._opener.open") as urlopen:
         sink.emit(_risk(SEVERITY_INFO))
     body = json.loads(urlopen.call_args[0][0].data.decode())
     assert body["payload"]["severity"] == "info"
@@ -65,12 +65,12 @@ def test_pagerduty_maps_info_severity():
 
 def test_pagerduty_min_severity_filters_lower():
     sink = PagerDutySink("RKEY", min_severity=SEVERITY_CRITICAL)
-    with mock.patch("urllib.request.urlopen") as urlopen:
+    with mock.patch("snagline.sinks.base._opener.open") as urlopen:
         sink.emit(_risk(SEVERITY_INFO))
     assert not urlopen.called
 
 
 def test_pagerduty_swallows_post_errors():
     sink = PagerDutySink("RKEY")
-    with mock.patch("urllib.request.urlopen", side_effect=OSError("down")):
+    with mock.patch("snagline.sinks.base._opener.open", side_effect=OSError("down")):
         sink.emit(_risk(SEVERITY_CRITICAL))  # must not raise

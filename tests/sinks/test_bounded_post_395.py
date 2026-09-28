@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import socket
 import time
-import urllib.request
 from unittest import mock
 
 import pytest
@@ -76,12 +75,19 @@ class _TrickleResponse:
         return b"x" * self._chunks
 
 
+def _patch_opener(response_factory):
+    # ``bounded_post`` goes through the module's own opener (the no-redirect
+    # policy rides on it), so that is the seam a fake server plugs into -- not
+    # ``urllib.request.urlopen``, which the helper no longer calls.
+    class _Opener:
+        def open(self, request, timeout=None):
+            return response_factory(request, timeout)
+
+    return mock.patch("snagline.sinks.base._opener", _Opener())
+
+
 def _trickling_urlopen(chunk_sleep: float, chunks: int):
-    return mock.patch.object(
-        urllib.request,
-        "urlopen",
-        side_effect=lambda req, timeout=None: _TrickleResponse(chunk_sleep, chunks),
-    )
+    return _patch_opener(lambda req, timeout: _TrickleResponse(chunk_sleep, chunks))
 
 
 # --- the two gaps from the issue ---------------------------------------------
@@ -168,11 +174,12 @@ def test_a_fast_post_is_delivered_and_silent(caplog) -> None:
 
     with (
         caplog.at_level("ERROR", logger="snagline"),
-        mock.patch.object(urllib.request, "urlopen", side_effect=fake_urlopen),
+        _patch_opener(fake_urlopen),
     ):
         WebhookSink("https://hooks.example/alerts", timeout=2.0).emit(_risk())
     assert captured["timeout"] == 2.0
-    # The configured timeout still reaches urlopen as the per-operation bound.
+    # The configured timeout still reaches the exchange as the per-operation
+    # bound.
     assert not caplog.records, "a successful post must log nothing"
 
 
@@ -181,11 +188,12 @@ def test_an_endpoint_failure_is_still_relayed(caplog) -> None:
     # preserved -- the error is logged fail-open rather than raised. Named by
     # class only, since the exception's text can embed the destination (issue
     # #390).
+    def refusing(req, timeout=None):
+        raise OSError("connection refused")
+
     with (
         caplog.at_level("ERROR", logger="snagline"),
-        mock.patch.object(
-            urllib.request, "urlopen", side_effect=OSError("connection refused")
-        ),
+        _patch_opener(refusing),
     ):
         WebhookSink("https://hooks.example/alerts").emit(_risk())
     assert "OSError" in caplog.text

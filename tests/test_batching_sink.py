@@ -188,6 +188,8 @@ def test_positive_flush_interval_is_accepted_as_is() -> None:
         assert len(inner.emitted) == 1
     finally:
         sink.close()
+
+
 # --- close() must not hang when the wrapped sink is stuck (issue #393) --------
 # The flusher clears the queue before taking _delivery_lock, so the deadlock
 # needs an enqueue *while* it is parked -- exactly what a live alert stream does.

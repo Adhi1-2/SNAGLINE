@@ -41,7 +41,7 @@ def test_emit_posts_failure_risk_fields_only() -> None:
         captured["timeout"] = timeout
         return _Resp()
 
-    with mock.patch.object(urllib.request, "urlopen", side_effect=fake_urlopen):
+    with mock.patch("snagline.sinks.base._opener.open", side_effect=fake_urlopen):
         WebhookSink("http://hooks.example/alerts", timeout=1.5).emit(_risk())
 
     body = json.loads(captured["req"].data.decode())
@@ -60,8 +60,8 @@ def test_emit_posts_failure_risk_fields_only() -> None:
 
 
 def test_emit_never_raises_on_network_failure() -> None:
-    with mock.patch.object(
-        urllib.request, "urlopen", side_effect=OSError("connection refused")
+    with mock.patch(
+        "snagline.sinks.base._opener.open", side_effect=OSError("connection refused")
     ):
         sink = WebhookSink("http://dead.invalid/hook")
         sink.emit(_risk())  # must be a silent no-op, not a raise
@@ -70,9 +70,8 @@ def test_emit_never_raises_on_network_failure() -> None:
 def test_emit_never_raises_on_bad_status() -> None:
     import urllib.error
 
-    with mock.patch.object(
-        urllib.request,
-        "urlopen",
+    with mock.patch(
+        "snagline.sinks.base._opener.open",
         side_effect=urllib.error.HTTPError("url", 500, "boom", hdrs=None, fp=None),  # type: ignore[arg-type]
     ):
         WebhookSink("http://hooks.example/alerts").emit(_risk())
@@ -112,8 +111,8 @@ def _risk_with_severity(severity: str) -> FailureRisk:
 
 def test_min_severity_info_passes_everything() -> None:
     posted: list = []
-    with mock.patch.object(
-        urllib.request, "urlopen", side_effect=_posting_urlopen(posted)
+    with mock.patch(
+        "snagline.sinks.base._opener.open", side_effect=_posting_urlopen(posted)
     ):
         sink = WebhookSink("http://x", min_severity="info")
         sink.emit(_risk_with_severity("info"))
@@ -124,8 +123,8 @@ def test_min_severity_info_passes_everything() -> None:
 
 def test_min_severity_critical_suppresses_lower() -> None:
     posted: list = []
-    with mock.patch.object(
-        urllib.request, "urlopen", side_effect=_posting_urlopen(posted)
+    with mock.patch(
+        "snagline.sinks.base._opener.open", side_effect=_posting_urlopen(posted)
     ):
         sink = WebhookSink("http://x", min_severity="critical")
         sink.emit(_risk_with_severity("info"))
@@ -139,8 +138,8 @@ def test_min_severity_critical_suppresses_lower() -> None:
 
 def test_min_severity_unset_is_unfiltered() -> None:
     posted: list = []
-    with mock.patch.object(
-        urllib.request, "urlopen", side_effect=_posting_urlopen(posted)
+    with mock.patch(
+        "snagline.sinks.base._opener.open", side_effect=_posting_urlopen(posted)
     ):
         sink = WebhookSink("http://x")
         sink.emit(_risk_with_severity("info"))
@@ -158,8 +157,9 @@ _HOOK_URL = "https://alice:hunter2@hooks.example/alerts"
 def test_failure_log_omits_basic_auth_credentials(caplog) -> None:
     sink = WebhookSink(_HOOK_URL)
     with caplog.at_level(logging.ERROR, logger="snagline"):
-        with mock.patch.object(
-            urllib.request, "urlopen", side_effect=OSError("connection refused")
+        with mock.patch(
+            "snagline.sinks.base._opener.open",
+            side_effect=OSError("connection refused"),
         ):
             sink.emit(_risk())
     assert caplog.records, "the failed POST must be logged"
