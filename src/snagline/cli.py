@@ -180,7 +180,7 @@ def _maybe_dedup(sinks: list[AlertSink], cooldown_seconds: float) -> list[AlertS
     return [DedupSink(s, cooldown_seconds=cooldown_seconds) for s in sinks]
 
 
-def _console_sinks(cfg: Config) -> list[AlertSink]:
+def _console_sinks(cfg: Config, min_severity: str | None = None) -> list[AlertSink]:
     """Console escalation plus LoggingSink when ``log_format == "json"``.
 
     Issue #99 settled composition as emission "alongside console"; issue #119
@@ -188,14 +188,19 @@ def _console_sinks(cfg: Config) -> list[AlertSink]:
     machine-readable with zero code changes, everywhere the console sink is
     the default choice. Explicit non-console ``--sink`` selections replace the
     console pair entirely and stay untouched.
+
+    ``min_severity`` filters both members of the pair exactly like the
+    webhook/slack/pagerduty sinks, so ``--min-severity`` is honoured on the
+    default sink instead of being silently ignored (issue #248 wired only the
+    three explicit sinks).
     """
     from snagline.sinks.console import ConsoleSink
 
-    pair: list[AlertSink] = [ConsoleSink()]
+    pair: list[AlertSink] = [ConsoleSink(min_severity=min_severity)]
     if cfg.log_format == "json":
         from snagline.sinks.logging_sink import LoggingSink
 
-        pair.append(LoggingSink())
+        pair.append(LoggingSink(min_severity=min_severity))
     return pair
 
 
@@ -242,7 +247,7 @@ def _build_sinks(args: argparse.Namespace, cfg: Config) -> list[AlertSink]:
             )
         )
     else:
-        sinks.extend(_console_sinks(cfg))
+        sinks.extend(_console_sinks(cfg, args.min_severity))
     return _maybe_dedup(sinks, args.cooldown_seconds)
 
 

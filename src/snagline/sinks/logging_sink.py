@@ -23,11 +23,27 @@ from contextlib import suppress
 
 from snagline.risk import FailureRisk
 from snagline.sinks.base import format_sink_repr
+from snagline.risk import (
+    SEVERITY_CRITICAL,
+    SEVERITY_INFO,
+    SEVERITY_WARNING,
+    FailureRisk,
+)
 
 logger = logging.getLogger("snagline")
 
 # Compact separators keep one risk to a single line even when detail is long.
 _COMPACT_SEPARATORS = (",", ":")
+
+_SEVERITY_ORDER = {
+    SEVERITY_INFO: 0,
+    SEVERITY_WARNING: 1,
+    SEVERITY_CRITICAL: 2,
+}
+
+
+def _order(severity: str) -> int:
+    return _SEVERITY_ORDER.get(severity, 1)
 
 
 class JsonRiskFormatter(logging.Formatter):
@@ -134,10 +150,12 @@ class LoggingSink:
         logger: logging.Logger | None = None,
         level: int = logging.WARNING,
         formatter: JsonRiskFormatter | None = None,
+        min_severity: str | None = None,
     ) -> None:
         self._logger = logger if logger is not None else logging.getLogger("snagline")
         self._level = level
         self._formatter = formatter if formatter is not None else JsonRiskFormatter()
+        self._min = min_severity
 
     def __repr__(self) -> str:
         return format_sink_repr(
@@ -145,6 +163,12 @@ class LoggingSink:
         )
 
     def emit(self, risk: FailureRisk) -> None:
+        # The JSON companion of the console pair honours ``--min-severity`` too,
+        # so a --log-format json run does not leak the info-level records the
+        # console itself now filters (issue #248 left the whole console pair
+        # unfiltered).
+        if self._min is not None and _order(risk.severity) < _order(self._min):
+            return
         try:
             line = self._formatter.render(risk)
         except Exception:

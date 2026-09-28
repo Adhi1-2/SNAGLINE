@@ -20,8 +20,24 @@ from typing import IO, Any
 
 from snagline.risk import FailureRisk
 from snagline.sinks.base import format_sink_repr
+from snagline.risk import (
+    SEVERITY_CRITICAL,
+    SEVERITY_INFO,
+    SEVERITY_WARNING,
+    FailureRisk,
+)
 
 logger = logging.getLogger("snagline")
+
+_SEVERITY_ORDER = {
+    SEVERITY_INFO: 0,
+    SEVERITY_WARNING: 1,
+    SEVERITY_CRITICAL: 2,
+}
+
+
+def _order(severity: str) -> int:
+    return _SEVERITY_ORDER.get(severity, 1)
 
 
 class ConsoleSink:
@@ -40,6 +56,7 @@ class ConsoleSink:
         stream: IO[str] | None = None,
         logger: logging.Logger | None = None,
         level: int = logging.WARNING,
+        min_severity: str | None = None,
     ) -> None:
         if stream is not None:
             # Fail loudly at construction rather than dropping alerts one at a
@@ -79,6 +96,7 @@ class ConsoleSink:
         self._stream = stream if stream is not None else sys.stderr
         self._logger = logger
         self._level = level
+        self._min = min_severity
         self._fault_logged = False
 
     def __repr__(self) -> str:
@@ -86,6 +104,13 @@ class ConsoleSink:
         return format_sink_repr("ConsoleSink", level=logging.getLevelName(self._level))
 
     def emit(self, risk: FailureRisk) -> None:
+        # The console is the default escalation target, so ``--min-severity``
+        # must filter it exactly like the webhook/slack/pagerduty sinks (issue
+        # #248 wired those three but left this one unfiltered): a value the
+        # operator set was silently ignored on the default sink, so every
+        # info-level risk still printed.
+        if self._min is not None and _order(risk.severity) < _order(self._min):
+            return
         payload: dict[str, Any] = {
             "episode_id": risk.episode_id,
             "step_id": risk.step_id,
