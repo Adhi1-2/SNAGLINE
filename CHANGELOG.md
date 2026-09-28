@@ -131,6 +131,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `disallowScopes` line as a regex auto-wrapped in `^…$`, so `[name:none]`
   compiled to a character class that would reject any legitimate single-letter
   scope (`fix(a): …`) while blocking nothing intended (#472).
+- `Monitor(detectors, sinks, config=cfg)` now applies the enforcement knobs the
+  `Config` carries -- `policy`, `halt_url`, `halt_timeout_s`,
+  `min_severity_for_halt`, and `fail_open` -- instead of only its own
+  arguments. The direct constructor and `Monitor.default()` disagreed about
+  the same configuration, so an operator wiring `SNAGLINE_POLICY=halt_webhook`
+  into the library API silently got observation mode with no warning, while
+  the same config through `snagline serve` armed the webhook. A `None`
+  argument means "not given" and defers to the config; an explicitly passed
+  value still wins, and `Config`'s defaults are the same literals the
+  arguments used to carry, so every pre-existing call constructs identically
+  (#352).
 
 ## [0.1.0] - 2026-08-27
 
