@@ -670,6 +670,19 @@ class Monitor:
             )
             if not self._fail_open:
                 raise
+            # Fail-open means the directive falls back to continue, not that a
+            # previously latched "pause" survives (docstring above, the
+            # last_directive property, and the module header all promise this).
+            # A consultation we could not complete -- timeout, dead endpoint,
+            # malformed body, unknown action -- must not leave the host paused
+            # on a stale decision the endpoint can no longer confirm: an
+            # unreachable halt service holding the host paused indefinitely is
+            # exactly the fail-CLOSED outcome the policy rejects (project.md
+            # §1.2). Reset so the stale directive cannot outlive the endpoint
+            # that issued it; a genuine pause is re-issued on the next
+            # successful consultation of a severe risk.
+            with self._directive_lock:
+                self._last_directive = HaltDirective()
             return
         with self._directive_lock:
             self._last_directive = directive

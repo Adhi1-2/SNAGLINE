@@ -509,6 +509,47 @@ def test_halt_webhook_error_status_defaults_to_continue():
         endpoint.stop()
 
 
+def test_halt_webhook_error_resets_a_previously_latched_pause():
+    """Fail-open falls the directive back to continue even after a prior
+    consultation latched ``pause`` -- the directive must not outlive the
+    endpoint that issued it.
+
+    Regression: the error path returned without touching ``_last_directive``,
+    so once a severe risk latched ``pause`` a subsequent dead/erroring/timed-
+    out/malformed consultation left the host paused indefinitely on a stale
+    decision the endpoint could no longer confirm -- the fail-CLOSED outcome
+    the last_directive property, the method docstring, and the module header
+    all promise against. Every other error test starts from the initial
+    continue, so none exercised the pause -> error -> continue transition.
+    """
+    calls = {"n": 0}
+
+    def responder(req):
+        calls["n"] += 1
+        # First consult latches pause; the endpoint then starts failing.
+        if calls["n"] == 1:
+            return 200, {"action": "pause", "reason": "budget breach"}
+        return 500, {"action": "pause"}
+
+    endpoint = _HaltEndpoint(responder=responder)
+    try:
+        monitor = Monitor(
+            [_FixedRiskDetector(score=0.9)],
+            [],
+            policy="halt_webhook",
+            halt_url=endpoint.url,
+        )
+        monitor.ingest(_event("s1"))
+        assert monitor.last_directive.action == "pause", "first consult latches"
+        monitor.ingest(_event("s2"))  # endpoint now errors on this consult
+        assert monitor.last_directive.action == "continue", (
+            "a failed consultation must fall back to continue, not keep the stale pause"
+        )
+        assert monitor.metrics()["policy_errors"] == 1
+    finally:
+        endpoint.stop()
+
+
 def test_halt_webhook_failure_propagates_when_fail_open_false():
     monitor = Monitor(
         [_FixedRiskDetector()],

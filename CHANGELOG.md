@@ -350,6 +350,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `str` write to either raises `TypeError` -- not an `OSError` subclass, so
   the fire-and-forget guard in `emit()` never caught it and every alert was
   silently discarded for the whole run behind the fail-open contract (#391).
+- Halt-webhook enforcement now falls the directive back to `continue` when a
+  consultation fails, instead of leaving a previously latched `pause` in force.
+  The error path (timeout, dead endpoint, malformed body, unknown action) reset
+  `policy_errors` but never touched `last_directive`, so once a severe risk
+  latched `pause` an unreachable halt service held the host paused indefinitely
+  on a stale decision it could no longer confirm -- the fail-CLOSED outcome the
+  `last_directive` docstring, the method docstring, and the module header all
+  promise against. It now resets to `continue` under `fail_open=True` (a genuine
+  pause is re-issued on the next successful consult); `fail_open=False` still
+  propagates (#523).
 
 ## [0.1.0] - 2026-08-27
 
