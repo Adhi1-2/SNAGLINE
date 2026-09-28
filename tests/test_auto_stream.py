@@ -364,3 +364,90 @@ def test_openai_stream_context_manager_error_after_exhaustion_stays_success() ->
     assert inner.closed
     assert len(mon.events) == 1
     assert mon.events[0].error is False
+# --- Issue #530: Anthropic streaming token usage is split across events. ---
+# ``message_start`` carries ``input_tokens`` (and an initial ``output_tokens``)
+# on ``event.message.usage``; ``message_delta`` carries the running
+# ``output_tokens`` on ``event.usage``; ``message_stop`` -- the terminal event
+# probed pre-#530 -- and the ``Stream`` object carry no usage at all, so reading
+# only the last chunk always yielded ``(None, None)``. These fakes mirror the
+# real ``anthropic==1.8.0`` raw-event shapes (verified against the installed SDK).
+
+
+class _Usage:
+    def __init__(
+        self, input_tokens: int | None = None, output_tokens: int | None = None
+    ) -> None:
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class _MessageStart:
+    def __init__(self, usage: _Usage) -> None:
+        self.type = "message_start"
+        self.message = type("Msg", (), {"usage": usage})()
+
+
+class _MessageDelta:
+    def __init__(self, usage: _Usage) -> None:
+        self.type = "message_delta"
+        self.usage = usage
+
+
+class _MessageStop:
+    def __init__(self) -> None:
+        self.type = "message_stop"
+
+
+def test_anthropic_stream_accumulates_split_usage() -> None:
+    events = [
+        _MessageStart(_Usage(input_tokens=42, output_tokens=1)),
+        _MessageDelta(_Usage(output_tokens=99)),
+        _MessageStop(),
+    ]
+    mon = _SpyMonitor()
+    client = wrap_anthropic(mon, _anthropic_client(_SyncStream(list(events))))
+    out = client.messages.create(model="m", messages=[], stream=True)
+    assert len(list(out)) == 3
+    assert len(mon.events) == 1
+    ev = mon.events[0]
+    assert ev.tokens_in == 42, "input_tokens from message_start must survive"
+    assert ev.tokens_out == 99, "output_tokens from message_delta must win"
+
+
+def test_anthropic_async_stream_accumulates_split_usage() -> None:
+    async def go() -> None:
+        events = [
+            _MessageStart(_Usage(input_tokens=7, output_tokens=1)),
+            _MessageDelta(_Usage(output_tokens=13)),
+            _MessageStop(),
+        ]
+        mon = _SpyMonitor()
+        inner = _AsyncStream(list(events))
+
+        async def _create(**kw: Any) -> Any:
+            return inner
+
+        from snagline.auto.anthropic import _wrap_one
+
+        wrapped = _wrap_one(mon, _create, "anthropic.messages.create")
+        out = await wrapped(model="m", messages=[], stream=True)
+        seen = [c async for c in out]
+        assert len(seen) == 3
+        assert len(mon.events) == 1
+        assert mon.events[0].tokens_in == 7
+        assert mon.events[0].tokens_out == 13
+
+    asyncio.run(go())
+
+
+def test_anthropic_stream_falls_back_to_terminal_usage() -> None:
+    # SDK shapes that stamp usage on the terminal chunk (e.g. a dict) still work
+    # via the _extract_tokens fallback when no split usage was seen.
+    chunks = [{"usage": {"input_tokens": 5, "output_tokens": 8}}]
+    mon = _SpyMonitor()
+    client = wrap_anthropic(mon, _anthropic_client(_SyncStream(list(chunks))))
+    out = client.messages.create(model="m", messages=[], stream=True)
+    assert len(list(out)) == 1
+    assert len(mon.events) == 1
+    assert mon.events[0].tokens_in == 5
+    assert mon.events[0].tokens_out == 8
