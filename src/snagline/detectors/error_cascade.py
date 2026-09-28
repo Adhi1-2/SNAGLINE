@@ -177,34 +177,46 @@ class ErrorCascadeDetector:
 
     def load_state(self, state: dict[str, Any]) -> None:
         counts = state.get("counts", {})
-        # Everything is built into locals first and only published once every
-        # conversion has succeeded. ``Monitor.restore_dict`` catches the
-        # ``ValueError`` a bad count raises and moves on, so assigning live
-        # attribute-by-attribute would leave the detector half-restored -- new
-        # windows paired with the old counts, consecutive and fired -- with the
-        # live window it was actually building destroyed and no signal that
-        # anything is wrong (review of #402).
-        windows = {
-            ep: deque(
+        windows = state.get("windows", {})
+        # Tolerant .get(): pre-#92 snapshots carry no scaler positions, so
+        # each episode's position is inferred from the window it shipped.
+        # The inferred value must seed _counts too, not merely size the
+        # deque -- observe() reads _counts.get(ep, 0), so an episode left
+        # absent restarts the scaler at the base and the first post-restore
+        # observe refits the deque down, discarding the history that was
+        # just restored (issue #403).
+        # The windows and counts are built into locals and published only once
+        # the whole snapshot has parsed: ``int()`` on a malformed count raises
+        # partway through, and assigning live attribute-by-attribute would
+        # leave the detector half-cleared -- some episodes restored, the rest
+        # silently dropped -- with its live state destroyed and nothing
+        # reporting the mismatch (review of #402).
+        new_windows: dict[str, deque] = {}
+        new_counts: dict[str, int] = {}
+        for ep, flags in windows.items():
+            n = int(counts.get(ep, len(flags)))
+            new_windows[ep] = deque(
                 flags,
                 maxlen=effective_window_size(
-                    self.window_size,
-                    int(counts.get(ep, len(flags))),
-                    self._scale_steps,
-                    self._max_window,
+                    self.window_size, n, self._scale_steps, self._max_window
                 ),
             )
-            for ep, flags in state.get("windows", {}).items()
-        }
-        # Tolerant .get(): pre-#92 snapshots carry no scaler positions.
-        # Tolerant .get(): pre-#92 snapshots carry no scaler positions.
-        new_counts = {ep: int(n) for ep, n in counts.items()}
-        consecutive = {ep: int(v) for ep, v in state.get("consecutive", {}).items()}
-        fired = {ep: bool(v) for ep, v in state.get("fired", {}).items()}
-        self._windows = windows
+            new_counts[ep] = n
+        for ep, n in counts.items():
+            new_counts.setdefault(ep, int(n))
+        # Parse the streaks and fired flags into locals too, before publishing
+        # anything: ``int()`` on a malformed streak raises here, and publishing
+        # windows/counts first (then letting the streak parse blow up) would
+        # leave the detector half-restored -- snapshot windows/counts on top of
+        # live streaks/fired -- the exact non-transactional state this guards
+        # against (issue #402/#406).
+        new_consecutive = {ep: int(v) for ep, v in state.get("consecutive", {}).items()}
+        new_fired = {ep: bool(v) for ep, v in state.get("fired", {}).items()}
+        # Every field has parsed; publish the whole snapshot at once.
+        self._windows = new_windows
         self._counts = new_counts
-        self._consecutive = consecutive
-        self._fired = fired
+        self._consecutive = new_consecutive
+        self._fired = new_fired
         # The flag counts are derived from the windows above; a restored window
         # carries its own maxlen, so the cached sizes and counts are dropped and
         # recomputed on the first observe rather than trusted against a

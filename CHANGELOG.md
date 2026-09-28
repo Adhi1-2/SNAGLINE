@@ -686,6 +686,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching the network sinks. The `snagline serve` startup banner is redacted
   too, since it prints the same URL to stderr, which a process supervisor
   captures and keeps after the process is gone (#390).
+  `ErrorCascadeDetector` published its windows and counts before parsing the
+  `consecutive` streaks and `fired` flags, so a malformed streak raised with
+  the snapshot's windows/counts already installed on top of the live streaks;
+  it now parses every field into locals before publishing, like its siblings.
+- Scaled-window restore now seeds the auto-scaler position it inferred, not
+  just the window width. `load_state` sized a restored window from the
+  position it read off the payload but rebuilt the scaler's `counts` dict
+  from the payload alone, so an episode present in `windows` but missing from
+  `counts` (a pre-#92 snapshot, or a partial one) restored at the correct
+  width and then lost it: `MeltdownDetector`'s window was left stuck wide for
+  the rest of the episode because `push` popped at most one item per call,
+  while `ErrorCascadeDetector` and `LoopDetector` refit their deques down to
+  the base on the very next observe, discarding the history the restore
+  applied. All three detectors now seed the position they inferred, and
+  `MeltdownDetector.push` pops while over instead of once (#403).
 
 ## [0.1.0] - 2026-08-27
 
