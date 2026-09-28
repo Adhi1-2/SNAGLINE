@@ -142,6 +142,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value still wins, and `Config`'s defaults are the same literals the
   arguments used to carry, so every pre-existing call constructs identically
   (#352).
+- `BatchingSink` now rejects a non-positive `flush_interval` at construction
+  with `ValueError`. `_wake.wait()` returns immediately for one, so the flusher
+  thread spun through an empty queue roughly 780,000 times per second, pinning a
+  full core for the life of the process while alerts still delivered and
+  nothing else looked wrong; `close()` also used the interval as its join
+  timeout, so a negative one starved the shutdown drain. `max_batch` is still
+  clamped, since any size still paces -- a non-positive interval has no
+  meaningful reading (#358).
 
 ## [0.1.0] - 2026-08-27
 
