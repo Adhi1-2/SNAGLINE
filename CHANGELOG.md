@@ -398,6 +398,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   persistent internal fault is also now logged once instead of per step:
   `observe()` swallows the exception, so `MLOrchestrator._log_fault_once`
   could never dedupe it (#386).
+- `Config` now rejects non-finite float knobs (`inf`, `-inf`, `nan`, and
+  overflow literals like `1e400`) from both `SNAGLINE_*` environment variables
+  and JSON config files. A non-finite CUSUM knob never crashed: `cusum > inf`
+  is never true, and `max(0.0, nan)` is `0.0` in CPython, which pinned the
+  accumulator at zero -- so the detector went inert for the entire run while
+  the process started cleanly and printed nothing to say the safety net was
+  off. The env path logs and drops the value (the existing un-coercible-value
+  contract, falling back to the built-in default) and a JSON file now raises
+  with the offending key named, since `json.loads` accepts the bare
+  `Infinity` / `NaN` tokens by default (#383).
 
 ## [0.1.0] - 2026-08-27
 
