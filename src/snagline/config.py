@@ -415,6 +415,38 @@ def _validated_counts_and_windows(cfg: Config) -> None:
         )
 
 
+def _validated_semantic_drift(cfg: Config) -> None:
+    """Validate the semantic goal-drift CUSUM knobs (issue #370); raise when
+    invalid.
+
+    Same contract as the horizon knobs (issue #92) and the deterministic
+    CUSUM bars (#331): an out-of-range value is a configuration error and
+    fails loudly at construction/resolve time instead of reaching
+    ``SemanticGoalDriftDetector._observe``, where the consequences are the two
+    things a drift detector must never do.
+
+    ``cusum_h`` is the denominator of the alarm score, so ``0`` raises
+    ``ZeroDivisionError`` on every scored step; ``observe`` swallows it
+    fail-open and re-logs a traceback once per step, and the episode never
+    alarms. A negative ``h`` makes ``debt >= h`` trivially true (debt is
+    clamped to ``>= 0``), and a negative slack ``k`` adds to the debt instead
+    of subtracting, so either one storms a false positive on nearly every
+    step.
+    """
+    if cfg.semantic_drift_cusum_h <= 0:
+        raise ValueError(
+            "semantic_drift_cusum_h must be positive; it is the denominator "
+            "of the alarm score, so 0 deadens the detector with a swallowed "
+            f"ZeroDivisionError; got {cfg.semantic_drift_cusum_h!r}"
+        )
+    if cfg.semantic_drift_cusum_k < 0:
+        raise ValueError(
+            "semantic_drift_cusum_k must be >= 0; a negative slack adds to "
+            "the CUSUM debt instead of subtracting and storms false "
+            f"positives; got {cfg.semantic_drift_cusum_k!r}"
+        )
+
+
 @dataclass
 class Config:
     # Loop detector
@@ -718,6 +750,9 @@ class Config:
         # hit these checks.
         _validated_cusum(self)
         _validated_counts_and_windows(self)
+        # Issue #370: same policy for the semantic goal-drift CUSUM knobs.
+        # Their defaults are valid, so only a configured value trips these.
+        _validated_semantic_drift(self)
 
     # --- 12-factor configuration (project.md §5.4, ATTACH_ANY_SYSTEM P0) -----
     @classmethod
@@ -849,4 +884,9 @@ class Config:
         # whole run (0 divides) or fabricate alerts from an empty window.
         _validated_cusum(cfg)
         _validated_counts_and_windows(cfg)
+        # Same re-validation for the semantic goal-drift CUSUM knobs (issue
+        # #370): SNAGLINE_SEMANTIC_DRIFT_CUSUM_H=0 must abort startup with a
+        # clear error, not deaden the detector with a swallowed
+        # ZeroDivisionError once steps start flowing.
+        _validated_semantic_drift(cfg)
         return cfg
