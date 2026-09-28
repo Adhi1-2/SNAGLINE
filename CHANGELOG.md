@@ -125,6 +125,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attempt is distinguishable from a mistyped token instead of vanishing into
   the general 401 noise. Every shipped client already sends JSON.
 
+### Changed
+- CI: removed the leftover `disallowScopes: [name:none]` placeholder from the
+  semantic-PR-title workflow. `amannn/action-semantic-pull-request` treats each
+  `disallowScopes` line as a regex auto-wrapped in `^…$`, so `[name:none]`
+  compiled to a character class that would reject any legitimate single-letter
+  scope (`fix(a): …`) while blocking nothing intended (#472).
+
 ## [0.1.0] - 2026-08-27
 
 This is the first tagged release. It comprises 87 merge commits on `origin/master`
