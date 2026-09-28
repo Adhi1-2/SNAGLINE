@@ -185,6 +185,85 @@ def test_cusum_refit_surfaces_baseline_drift() -> None:
     assert all(r is None for r in risks[-5:])
 
 
+def test_cusum_refit_does_not_silently_adopt_a_sustained_regression() -> None:
+    """Issue #482: adopt_candidate() unconditionally moves mu0 and zeroes the
+    CUSUM, but the drift report was gated on the single-step ``h*sigma0`` bar
+    (~25ms here) -- an order of magnitude stricter than the CUSUM's real
+    sustained-shift sensitivity ``k*sigma0`` (~2.5ms). A sustained +4-sigma
+    regression whose move (~20ms) landed in that band was learned away with no
+    risk of any kind: mu0 slid up to the regressed latency and the detector
+    went quiet on a tool pinned 4 sigma above its healthy baseline. The bar is
+    now ``k*sigma0``, so the adoption surfaces a "baseline shifted" risk.
+    """
+    cfg = Config(cusum_min_samples=5, cusum_refit_every=10)
+    det = LatencyAnomalyDetector(config=cfg)
+    risks = []
+    ts = 0.0
+    # Healthy warm-up ~100ms (sigma0 floors to ~5 = 0.05 * 100), then frozen.
+    for i in range(8):
+        risks.append(det.observe(_event(f"w{i}", ts, "s", latency_ms=100.0 + (i % 2))))
+        ts += 1.0
+    # A sustained 120ms regression: shift ~20ms, above k*sigma0 (~2.5ms) but
+    # below the old h*sigma0 bar (~25ms) -- the band #482 dropped silently.
+    for i in range(40):
+        risks.append(det.observe(_event(f"x{i}", ts, "s", latency_ms=120.0)))
+        ts += 1.0
+    details = [r.detail for r in risks if r is not None]
+    assert any("baseline shifted" in d for d in details), (
+        "a sustained +4-sigma regression must not be adopted silently"
+    )
+
+
+def test_cusum_refit_below_k_sigma_shift_stays_silent() -> None:
+    """Control for #482: a baseline move smaller than the CUSUM's sustained-
+    shift sensitivity (``k*sigma0``) is genuine noise, not a regression, and
+    must not manufacture a "baseline shifted" risk. Lowering the report bar to
+    ``k*sigma0`` must not turn ordinary jitter into a drift alert.
+    """
+    cfg = Config(cusum_min_samples=5, cusum_refit_every=10)
+    det = LatencyAnomalyDetector(config=cfg)
+    risks = []
+    ts = 0.0
+    for i in range(8):
+        risks.append(det.observe(_event(f"w{i}", ts, "s", latency_ms=100.0 + (i % 2))))
+        ts += 1.0
+    # A ~1ms move: well below k*sigma0 (~2.5ms). The CUSUM never alarms and the
+    # re-fit must not report a shift.
+    for i in range(40):
+        risks.append(det.observe(_event(f"x{i}", ts, "s", latency_ms=101.0)))
+        ts += 1.0
+    assert all(r is None for r in risks), (
+        "a sub-k*sigma0 move is noise and must stay silent"
+    )
+
+
+def test_cusum_refit_downward_shift_stays_silent() -> None:
+    """Issue #482 follow-up: the shift magnitude was taken with ``abs()``, so a
+    *downward* baseline move (latency improved) past ``k*sigma0`` surfaced a
+    "baseline shifted ... a sustained shift past the CUSUM's k-sigma
+    sensitivity" risk. But this CUSUM is one-sided (upper): it only ever alarms
+    on an upward shift, so a downward move is never a regression it was
+    alarming on and must stay silent. The report is now gated on the *signed*
+    move, so an improvement adopts the faster baseline without a false risk.
+    """
+    cfg = Config(cusum_min_samples=5, cusum_refit_every=10)
+    det = LatencyAnomalyDetector(config=cfg)
+    risks = []
+    ts = 0.0
+    for i in range(8):
+        risks.append(det.observe(_event(f"w{i}", ts, "s", latency_ms=100.0 + (i % 2))))
+        ts += 1.0
+    # A sustained ~30ms *improvement*: magnitude well past k*sigma0 (and even
+    # the old h*sigma0 bar), but downward -- the one-sided CUSUM never alarms.
+    for i in range(40):
+        risks.append(det.observe(_event(f"x{i}", ts, "s", latency_ms=70.0)))
+        ts += 1.0
+    assert all(r is None for r in risks), (
+        "a downward baseline move is an improvement, never a regression: "
+        f"got {[r.detail for r in risks if r is not None]}"
+    )
+
+
 def test_cusum_alarm_coincident_with_adoption_keeps_severity_and_detail() -> None:
     """Issue #244: the alarm was scored *after* the periodic re-fit advanced.
     When adoption landed on the same step as an alarm, adopt_candidate() had
