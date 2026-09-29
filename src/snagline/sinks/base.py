@@ -135,6 +135,17 @@ def describe_failure(exc: BaseException) -> str:
 _MAX_INFLIGHT_POSTS = 64
 _inflight_posts = threading.BoundedSemaphore(_MAX_INFLIGHT_POSTS)
 
+# Cap on how many reply-body bytes a network sink will read (issue #560). The
+# sinks discard the reply, so ``bounded_post`` used to be called with
+# ``max_bytes=None`` and read the whole thing first -- the wall-clock deadline
+# bounds *time*, not *memory*, and a fast endless or chunked stream allocates
+# without bound well inside a 2 s budget. The URL is operator-supplied, so this
+# is a misconfigured or hostile endpoint driving allocation in the monitor's
+# own process. 64 KiB matches the halt webhook's ``_MAX_HALT_RESPONSE_BYTES``
+# (monitor.py): it is orders above any ack a sane endpoint returns, and the
+# body is thrown away either way, so the cap is behaviour-preserving.
+_MAX_SINK_RESPONSE_BYTES = 65_536
+
 
 class SinkBusyError(RuntimeError):
     """Raised when the in-flight sink-POST cap is full, so no POST was started.
@@ -181,8 +192,8 @@ def bounded_post(
 
     ``max_bytes`` caps the read, so a malicious or broken endpoint cannot make
     the exchange unbounded by streaming an endless body. The sinks pass
-    ``None`` because they discard the reply anyway; the halt webhook passes
-    its existing response cap.
+    ``_MAX_SINK_RESPONSE_BYTES`` because they discard the reply anyway; the
+    halt webhook passes its own response cap.
 
     Raises whatever the exchange raised once that is known, or ``TimeoutError``
     if the deadline passed first. Raises ``SinkBusyError`` without starting the
