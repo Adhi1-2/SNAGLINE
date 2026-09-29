@@ -15,6 +15,7 @@ import logging
 import os
 
 from snagline.config import Config
+from snagline.detectors.token_runaway import TokenRunawayDetector
 from snagline.events import StepEvent
 from snagline.monitor import Monitor
 from snagline.risk import FailureRisk
@@ -314,6 +315,56 @@ def test_jump_past_budget_emits_no_stale_warning_afterward() -> None:
     budget = [r for r in sink.risks if r.trigger == "wall_clock_budget"]
     assert [(r.step_id, r.score) for r in budget] == [("s2", 1.0)]
     assert budget[0].severity == "critical"
+
+
+def test_wall_clock_budget_and_token_runaway_grade_their_warning_identically():
+    """The two budget envelopes are the same signal at different scales, and
+    both the code and the trigger table in ``risk.py`` claim they grade their
+    pre-breach warning alike (``token_runaway`` carries the comment "the two
+    must grade their pre-breach signal identically"). The claim is asserted
+    here rather than left as prose so a change to one envelope's score cannot
+    leave the other -- and the documented severity -- behind."""
+    sink = CapturingSink()
+    cfg = Config(
+        max_episode_wall_seconds=100.0,
+        warn_fraction=0.5,
+        token_runaway_enabled=True,
+        episode_token_budget=1000,
+        token_budget_warn_fraction=0.5,
+    )
+    m = Monitor([TokenRunawayDetector(config=cfg)], [sink], config=cfg)
+    for i in range(6):
+        m.ingest(  # 20s per step, 100 tokens per step
+            StepEvent(
+                step_id=f"s{i}",
+                episode_id="ep1",
+                timestamp=float(i * 20),
+                action_type="tool_call",
+                action_signature=f"sig-{i}",
+                tool_name="t",
+                tokens_in=100,
+            )
+        )
+
+    wall_warn = next(
+        (r for r in sink.risks if r.trigger == "wall_clock_budget" and r.score < 1.0),
+        None,
+    )
+    token_warn = next((r for r in sink.risks if r.trigger == "token_runaway"), None)
+    assert wall_warn is not None and token_warn is not None, (
+        "both envelopes must fire their pre-breach warning"
+    )
+    assert wall_warn.score == token_warn.score, (
+        "the twin envelopes must grade their pre-breach warning identically: "
+        f"wall_clock_budget={wall_warn.score} token_runaway={token_warn.score}"
+    )
+    assert wall_warn.severity == token_warn.severity
+    # The shared grade must stay inside the warning band: ``severity_from_score``
+    # promotes >= 0.8 to critical, which would page on a merely-at-budget signal
+    # and, under policy="halt_webhook", consult the halt endpoint (default
+    # ``min_severity_for_halt`` is 0.8) for something that is not a breach.
+    assert wall_warn.score < 0.8
+    assert wall_warn.severity == "warning"
 
 
 # --- restore across a process restart ---------------------------------------

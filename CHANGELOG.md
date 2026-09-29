@@ -62,6 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its live state" warning was then false, and on a fresh restore an episode
   ended up with a frozen CUSUM baseline but no budget total, so an
   already-breached episode could re-warn and re-breach on its next step (#552).
+- The trigger table in `risk.py` documented `wall_clock_budget`'s pre-breach
+  warning as `score 0.8`, but the monitor has always emitted `0.7` there, kept
+  below `severity_from_score`'s critical threshold so an at-budget signal is
+  not paged like the breach itself. The comment is written as API
+  documentation (the trigger names are the wire contract CONTINUUM's
+  risk-policy table maps by name), so an operator filtering on severity would
+  have expected the warning to page. Corrected, and the twin-envelope grading
+  invariant it implies is now asserted in code rather than prose.
 - The explicit `wrap_openai_client` / `wrap_anthropic_client` stream wrappers
   now support the documented `with stream as s:` and `async with stream as s:`
   forms. Implicit special-method lookup goes through the type slots and
