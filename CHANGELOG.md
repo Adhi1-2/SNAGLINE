@@ -123,6 +123,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   since `logging` propagates) declares an encoding that cannot hold the line,
   the sink now emits the ASCII-escaped variant instead; `json.loads` yields the
   identical string, so no pipeline loses data (#431).
+- `JsonRiskFormatter` no longer re-renders its way past that guard. Configuring
+  the formatter on a handler makes `logging` call `handler.format(record)`, which
+  rebuilt the JSON from `record.snagline_risk` with `ensure_ascii=False` and
+  discarded the line the sink had already computed -- including the
+  ASCII-escaped variant it had just fallen back to. `StreamHandler.emit` then
+  raised `UnicodeEncodeError` and `handleError` dropped the record, so the #431
+  failure mode returned through the module's other documented entry point. The
+  sink now publishes the exact line it chose and `format` returns it verbatim;
+  records carrying a bare `snagline_risk` from anywhere else still render as
+  before. `JsonRiskFormatter(ensure_ascii=True)` also escapes upfront for a
+  handler that is not fed by the sink at all (#558).
 - `--cooldown-seconds` is now rejected when it is not finite. `inf` made the
   suppression test always true, so the first alert per key silenced every
   repeat forever -- the indefinite silence the dedup wrapper exists to prevent

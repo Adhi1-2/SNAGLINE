@@ -7,6 +7,7 @@ fail open, and a healthy agent stream must stay completely silent.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 
@@ -220,6 +221,55 @@ def test_formatter_leaves_plain_records_on_default_formatting():
     # Records without an attached risk must pass through default formatting
     # untouched, so sharing one handler across sources stays safe.
     assert JsonRiskFormatter().format(_plain_record()) == "ordinary log line"
+
+
+def test_format_returns_a_published_line_verbatim():
+    """Issue #558: the sink publishes the exact line it computed -- possibly the
+    ASCII-escaped variant it fell back to -- and ``format`` must return it
+    rather than re-render from the risk."""
+    record = _risk_record()
+    record.snagline_rendered = "pre-computed line"  # type: ignore[attr-defined]
+    assert JsonRiskFormatter().format(record) == "pre-computed line"
+
+
+def test_ensure_ascii_flag_escapes_on_the_handler_side():
+    """For a handler that is NOT fed by ``LoggingSink`` -- records carrying a
+    bare ``snagline_risk`` from anywhere else -- the documented ``format`` entry
+    point can be asked to escape upfront, since it has no sink to do it."""
+    record = _risk_record()
+    record.snagline_risk = _risk(detail="café naïve")  # type: ignore[attr-defined]
+
+    escaped = JsonRiskFormatter(ensure_ascii=True).format(record)
+    assert escaped.encode("ascii"), "ensure_ascii=True must be byte-safe"
+    assert json.loads(escaped)["detail"] == "café naïve"
+
+    raw = JsonRiskFormatter().format(record)
+    assert "café" in raw, "the default keeps the UTF-8 case readable (issue #431)"
+
+
+def test_formatter_handler_survives_a_narrow_codepage_stream():
+    """Issue #558 (the reported repro): with ``JsonRiskFormatter`` installed on
+    the handler, ``logging`` called ``handler.format(record)``, which
+    re-rendered from ``record.snagline_risk`` with ``ensure_ascii=False`` and
+    discarded the ASCII-escaped line the sink had computed. ``StreamHandler.emit``
+    then raised ``UnicodeEncodeError``, ``logging``'s own ``handleError``
+    absorbed it and printed a traceback, and the alert was dropped -- the exact
+    #431 failure mode the sink-side guard exists to prevent."""
+    buf = io.TextIOWrapper(io.BytesIO(), encoding="ascii", newline="\n")
+    lg = logging.getLogger("snagline.test.narrow")
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(JsonRiskFormatter())
+    lg.addHandler(handler)
+    lg.setLevel(logging.DEBUG)
+    try:
+        LoggingSink(logger=lg).emit(_risk(detail="café naïve café"))
+        buf.flush()
+    finally:
+        lg.removeHandler(handler)
+
+    out = buf.buffer.getvalue().decode("ascii")
+    assert out, "the alert was dropped by the narrow-codepage stream"
+    assert json.loads(out)["detail"] == "café naïve café"
 
 
 def test_custom_formatter_injection_controls_output():
