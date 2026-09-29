@@ -198,6 +198,63 @@ def test_load_state_is_atomic_when_an_entry_is_malformed():
     assert d._breached == live_breached
 
 
+def test_load_state_is_atomic_when_an_earlier_entry_is_valid():
+    # The atomicity guard above only exercises a snapshot whose *sole* entry is
+    # the malformed one. A torn write or a hand edit more often carries one
+    # good episode and one bad one, and the good one parses first: load_state
+    # published it straight into ``_states`` before the later entry raised, so
+    # the detector ended up with a snapshot CUSUM state paired with the live
+    # envelope counters -- an already-breached episode could then re-warn and
+    # re-breach on its next step, while restore_dict logged that the detector
+    # "keeps its live state".
+    d = TokenRunawayDetector(min_samples=3, budget_total_tokens=2000)
+    _run(d, [_event(i, 500) for i in range(4)])  # live "ep": 4*500 == budget
+    assert d._states["ep"].frozen and d._breached.get("ep"), "need state to lose"
+    live = d.dump_state()
+
+    # "ep-good" parses cleanly and lands first; "ep-bad" raises after it.
+    payload = {
+        "states": {
+            "ep-good": live["states"]["ep"],
+            "ep-bad": {"n": "not-an-int"},
+        },
+        "totals": {"ep-good": 100},
+        "warned": {"ep-good": True},
+        "breached": {"ep-good": True},
+    }
+    with pytest.raises(Exception):
+        d.load_state(payload)
+
+    assert "ep-good" not in d._states, "a rejected snapshot must apply nothing"
+    assert "ep-bad" not in d._states
+    assert d._states["ep"].cusum == live["states"]["ep"]["cusum"]
+    assert d._totals == live["totals"], "envelope counters must stay live"
+    assert d._warned == live["warned"]
+    assert d._breached == live["breached"]
+
+
+def test_load_state_is_atomic_when_an_envelope_counter_is_malformed():
+    # The envelope counters parse after the CUSUM states, so a bad total must
+    # not leave the states already replaced when it raises -- including for the
+    # episode whose own state parsed cleanly.
+    d = TokenRunawayDetector(min_samples=3, budget_total_tokens=2000)
+    _run(d, [_event(i, 500) for i in range(4)])
+    live = d.dump_state()
+
+    payload = {
+        "states": {"ep-good": live["states"]["ep"]},
+        "totals": {"ep-good": "not-an-int"},
+        "warned": {},
+        "breached": {},
+    }
+    with pytest.raises(Exception):
+        d.load_state(payload)
+
+    assert "ep-good" not in d._states, "a rejected snapshot must apply nothing"
+    assert d._states["ep"].cusum == live["states"]["ep"]["cusum"]
+    assert d._totals == live["totals"]
+
+
 def test_load_state_applies_when_the_snapshot_is_good():
     d1 = TokenRunawayDetector(min_samples=3, budget_total_tokens=2000)
     _run(d1, [_event(i, 500) for i in range(4)])
