@@ -130,3 +130,65 @@ def test_anthropic_observe_reads_perf_counter(monkeypatch: pytest.MonkeyPatch) -
     e = observe_anthropic_call(mon, episode_id="ep-155", model="claude")
 
     assert e.timestamp == scripted
+
+
+def test_raw_default_clock_reads_perf_counter(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Default path: NO injected clock. raw.watch stamps the event timestamp
+    # directly, so exactly one scripted reading is consumed per step.
+    scripted = T0 + SUB_MS_S
+    monkeypatch.setattr(time, "perf_counter", _script(scripted))
+    mon = _monitor()
+
+    from snagline.adapters.raw import watch
+
+    with watch(mon, "ep-155") as step:
+        e = step("tool_call", tool_name="search")
+
+    assert e.timestamp == scripted
+
+
+def test_langgraph_default_clock_reads_perf_counter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # watch_graph computes latency AND the event timestamp from its clock, so
+    # both must come from perf_counter on the default path. Read order per
+    # yielded update: one for the latency/timestamp pair, then the timestamp
+    # is reused (a stray time.time() here would leave timestamp != the value
+    # the latency was measured from).
+    t0, t1 = T0, T0 + SUB_MS_S
+    monkeypatch.setattr(time, "perf_counter", _script(t0, t1))
+    mon = _monitor()
+
+    from snagline.adapters.langgraph_adapter import watch_graph
+
+    events: list[Any] = []
+    mon.ingest = events.append  # type: ignore[method-assign, assignment]
+
+    list(watch_graph(mon, "ep-155", iter([{"node": {"x": 1}}])))
+
+    assert len(events) == 1
+    assert events[0].timestamp == t1
+    assert events[0].latency_ms == pytest.approx(SUB_MS_S * 1000.0, rel=1e-12)
+
+
+def test_claude_code_default_clock_reads_perf_counter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A payload carries no timestamp, so payload_to_event stamps one itself.
+    scripted = T0 + SUB_MS_S
+    monkeypatch.setattr(time, "perf_counter", _script(scripted))
+
+    from snagline.adapters.claude_code import payload_to_event
+
+    e = payload_to_event(
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": "s",
+            "tool_use_id": "u",
+            "tool_name": "Bash",
+            "tool_input": {"cmd": "ls"},
+        }
+    )
+
+    assert e is not None
+    assert e.timestamp == scripted
