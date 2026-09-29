@@ -22,6 +22,7 @@ from __future__ import annotations
 import collections
 import contextlib
 import logging
+import math
 import threading
 import time
 
@@ -43,7 +44,7 @@ class BatchingSink:
     ) -> None:
         self._sink = sink
         self._max_batch = max(1, max_batch)
-        if flush_interval <= 0.0:
+        if not math.isfinite(flush_interval) or flush_interval <= 0.0:
             # A non-positive interval makes _wake.wait return immediately, so
             # the flusher busy-spins on an empty queue (~780k passes/sec, a
             # full core, for the life of the process) while still delivering
@@ -51,7 +52,18 @@ class BatchingSink:
             # rather than clamping: unlike max_batch there is no size that
             # still paces, and the join in close() uses this same value as its
             # timeout, so a negative one also starves the shutdown drain.
-            raise ValueError(f"flush_interval must be positive; got {flush_interval!r}")
+            #
+            # A non-finite interval is worse in both directions (issue #432):
+            # inf means _wake.wait never returns on the timer, so alerts sit in
+            # the queue until max_batch fills or close() drains them, and that
+            # same inf reaches thread.join as its timeout and raises
+            # OverflowError, so a clean shutdown dies too; nan busy-spins like
+            # the non-positive case and then makes close() raise ValueError.
+            # Neither paces anything, so they join the same rejection.
+            raise ValueError(
+                f"flush_interval must be a finite positive number; "
+                f"got {flush_interval!r}"
+            )
         self._flush_interval = flush_interval
         self._min_gap = 1.0 / max_per_second if max_per_second else 0.0
         self._queue: collections.deque[FailureRisk] = collections.deque()

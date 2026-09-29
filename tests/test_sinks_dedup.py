@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import time
 
+import pytest
+
 from snagline.risk import (
     SEVERITY_CRITICAL,
     SEVERITY_INFO,
@@ -316,6 +318,23 @@ def test_dedup_non_positive_cooldown_is_pass_through():
             f"{sink.sweeps} sweeps on a pass-through sink (cooldown={cooldown})"
         )
         assert sink._last == {}, f"table grew with cooldown={cooldown}"
+
+
+# --- Non-finite cooldown_seconds (issue #432) ---------------------------------
+# The CLI rejects a non-finite --cooldown-seconds before it reaches the sink;
+# this is the library boundary that guard cannot cover. inf makes the
+# suppression test (now - last) < inf always true, so the first alert per key
+# silences every repeat forever -- the indefinite silence the module docstring
+# promises this wrapper never produces -- and the sweep guard
+# (now - swept) >= inf is never true, so the bounded table above grows without
+# bound. nan falls out of the cooldown > 0 branch, so an operator who asked for
+# a cooldown gets an alert storm with no warning. Neither is a cooldown.
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+def test_dedup_non_finite_cooldown_is_rejected(bad: float) -> None:
+    with pytest.raises(ValueError, match="cooldown_seconds must be a finite"):
+        DedupSink(_RecordingSink(), cooldown_seconds=bad)
 
 
 def test_dedup_raising_key_fn_fails_open():

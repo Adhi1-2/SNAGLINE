@@ -67,6 +67,12 @@ class DedupSink:
 
     A non-positive ``cooldown_seconds`` disables suppression entirely and makes
     ``emit`` a pass-through: with no window, every alert is already outside it.
+    A non-finite one is rejected here instead: ``inf`` makes the suppression
+    test always true, so the first alert per key silences every repeat forever
+    -- the indefinite silence this wrapper exists to prevent -- and stops the
+    sweep from ever running, so the bounded table above grows without bound;
+    ``nan`` falls out of the enabled branch and silently disables the cooldown
+    an operator asked for. Neither is a cooldown (issue #432).
     """
 
     def __init__(
@@ -76,6 +82,15 @@ class DedupSink:
         key_fn: Callable[[FailureRisk], Any] | None = None,
     ) -> None:
         self._sink = sink
+        if not math.isfinite(cooldown_seconds):
+            # Checked before the > 0 classification below: nan and -inf make
+            # neither comparison true, so they used to fall through into the
+            # disable branch and an operator who asked for a cooldown got an
+            # alert storm with no warning (issue #432).
+            raise ValueError(
+                f"cooldown_seconds must be a finite non-negative window "
+                f"(pass <= 0 to disable suppression); got {cooldown_seconds!r}"
+            )
         self._cooldown = cooldown_seconds
         # Suppression needs a positive window to mean anything. Precomputed so
         # the disabled case costs one attribute read on the hot path rather

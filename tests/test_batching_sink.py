@@ -170,11 +170,19 @@ def test_emit_stays_non_blocking_when_the_batch_is_full():
 # spun through an empty queue ~780k times/sec -- a full core for the process
 # lifetime, while alerts still delivered and nothing else looked wrong. The
 # interval is now rejected at construction, like max_batch is bounded.
+#
+# A non-finite interval is rejected for the same reason and two more (issue
+# #432): inf means the timer never fires, so alerts sit in the queue until
+# max_batch fills or close() drains them, and that same inf reaches
+# thread.join as its timeout and raises OverflowError; nan busy-spins like the
+# non-positive case and makes close() raise ValueError.
 
 
-@pytest.mark.parametrize("bad", [0.0, -1.0, -0.5])
+@pytest.mark.parametrize(
+    "bad", [0.0, -1.0, -0.5, float("inf"), float("-inf"), float("nan")]
+)
 def test_non_positive_flush_interval_is_rejected(bad: float) -> None:
-    with pytest.raises(ValueError, match="flush_interval must be positive"):
+    with pytest.raises(ValueError, match="flush_interval must be a finite"):
         BatchingSink(_RecordingSink(), max_batch=1000, flush_interval=bad)
 
 
