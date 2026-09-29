@@ -144,7 +144,9 @@ def test_score_escalates_as_a_live_cascade_deepens():
     # the episode, so a genuine outage could never reach ``min_severity_for_halt``
     # and ``policy="halt_webhook"`` would never fire. Dedupe therefore tracks
     # the band, so a cascade that deepens past it alerts again (issue #538).
-    d = ErrorCascadeDetector(window_size=100, error_threshold=99, consecutive_threshold=3)
+    d = ErrorCascadeDetector(
+        window_size=100, error_threshold=99, consecutive_threshold=3
+    )
     fires = [r for i in range(40) if (r := d.observe(_event(i, True))) is not None]
     scores = [r.score for r in fires]
     assert scores == [0.5, 0.8, 1.0], scores
@@ -158,7 +160,9 @@ def test_sustained_cascade_at_one_band_still_alerts_once():
     # Issue #4 must survive the band-aware dedupe: a cascade that stays inside
     # the band it already alerted on is a repeat, not new information, so it
     # must not re-fire on every step.
-    d = ErrorCascadeDetector(window_size=100, error_threshold=99, consecutive_threshold=3)
+    d = ErrorCascadeDetector(
+        window_size=100, error_threshold=99, consecutive_threshold=3
+    )
     risks = [d.observe(_event(i, True)) for i in range(3)]
     assert [r.score for r in risks if r is not None] == [0.5]
 
@@ -166,7 +170,9 @@ def test_sustained_cascade_at_one_band_still_alerts_once():
 def test_cleared_cascade_rearms_the_band():
     # When the cascade clears, the band must reset so an independent later
     # cascade alerts from the bottom again (mirrors ``LoopDetector``).
-    d = ErrorCascadeDetector(window_size=10, error_threshold=99, consecutive_threshold=3)
+    d = ErrorCascadeDetector(
+        window_size=10, error_threshold=99, consecutive_threshold=3
+    )
     d.observe(_event(0, True))
     d.observe(_event(1, True))
     first = d.observe(_event(2, True))
@@ -191,6 +197,8 @@ def test_windowed_first_crossing_is_graded_not_flat():
         if r is not None:
             risks.append(r)
     assert len(risks) == 1
-    assert risks[0].score < 0.8, f"windowed first crossing must not be critical: {risks[0].score}"
+    assert risks[0].score < 0.8, (
+        f"windowed first crossing must not be critical: {risks[0].score}"
+    )
     assert risks[0].score == 0.5
     assert risks[0].detail.startswith("3 errors in last")
