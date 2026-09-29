@@ -54,18 +54,39 @@ class JsonRiskFormatter(logging.Formatter):
     * ``format(record)`` -- standard ``logging.Formatter`` entry point for
       handlers that want to re-render records carrying the risk in
       ``record.snagline_risk``; other records fall back to default formatting.
+
+    Pass ``ensure_ascii=True`` for a handler whose stream targets a codepage
+    narrower than UTF-8 when the records are *not* produced by
+    :class:`LoggingSink` (issue #558). The sink attaches the exact line it
+    computed -- including the ASCII-escaped variant it falls back to on a
+    narrow stream (issue #431) -- and ``format`` returns that verbatim, so a
+    handler-side formatter can never re-render its way past the escape hatch.
     """
+
+    def __init__(self, *, ensure_ascii: bool = False) -> None:
+        super().__init__()
+        self._ensure_ascii = ensure_ascii
 
     def format(self, record: logging.LogRecord) -> str:
         risk = getattr(record, "snagline_risk", None)
-        if isinstance(risk, FailureRisk):
-            return self.render(risk)
-        return super().format(record)
+        if not isinstance(risk, FailureRisk):
+            return super().format(record)
+        # The sink already chose a line its streams can encode -- possibly the
+        # ASCII-escaped variant -- and published it alongside the risk
+        # (issue #431). Re-rendering from the risk here would throw that away
+        # and drop the record on a narrow-codepage stream, whose encode
+        # failure ``logging``'s own ``handleError`` absorbs while the sink
+        # never sees an exception (issue #558). Records carrying a bare risk
+        # from anywhere else still render as before.
+        pre = getattr(record, "snagline_rendered", None)
+        if isinstance(pre, str):
+            return pre
+        return self.render(risk)
 
     def render(self, risk: FailureRisk) -> str:
         """Serialize one risk to a compact JSON line (fail-open)."""
         try:
-            return self._serialize(risk, ensure_ascii=False)
+            return self._serialize(risk, ensure_ascii=self._ensure_ascii)
         except Exception:
             return self._fallback(risk)
 
@@ -81,6 +102,10 @@ class JsonRiskFormatter(logging.Formatter):
         the per-alert traceback reads as a fault of the instrumentation. Every
         codepoint is escaped here instead, which any byte stream can carry;
         ``json.loads`` yields the identical string, so no pipeline loses data.
+
+        Kept as a distinct method (not just ``render(ensure_ascii=True)``) so
+        :meth:`format` can reach it by attribute when the sink falls back on a
+        narrow stream.
         """
         try:
             return self._serialize(risk, ensure_ascii=True)
@@ -194,4 +219,13 @@ class LoggingSink:
                     line = render_ascii(risk)
                 break
         with suppress(Exception):  # pragma: no cover - host logger failure
-            self._logger.log(self._level, "%s", line, extra={"snagline_risk": risk})
+            # ``line`` is the exact bytes the sink wants on the wire -- possibly
+            # the ASCII-escaped variant it just fell back to -- so publish it
+            # for ``JsonRiskFormatter.format`` to return verbatim instead of
+            # re-rendering from the risk and losing the escape hatch (#558).
+            self._logger.log(
+                self._level,
+                "%s",
+                line,
+                extra={"snagline_risk": risk, "snagline_rendered": line},
+            )
