@@ -1899,6 +1899,118 @@ $$('a[href^="#"]').forEach(function(a){
     nextStep();
   }
 
+  /* ───── COMMAND: SERVE ───── */
+  var SERVE_LINES = [
+    { text: '<span class="ok">+</span> snagline serve: listening on <span class="ac">http://127.0.0.1:8787</span> <span class="dm">(POST /events, GET /health)</span>', delay: 320 },
+    { text: '<span class="dm">|</span> <span class="ac">POST /events</span> &lt; <span class="ac">{"episode_id":"ep-1","step_id":"s-1","tool_name":"search","action_type":"tool_call","latency_ms":124}</span>', delay: 300 },
+    { text: '<span class="dm">|</span> <span class="ac">POST /events</span> &lt; <span class="ac">{"episode_id":"ep-1","step_id":"s-2","tool_name":"search","action_type":"tool_call","latency_ms":131}</span>', delay: 280 },
+    { text: '<span class="dm">|</span> <span class="ac">POST /events</span> &lt; <span class="ac">{"episode_id":"ep-1","step_id":"s-3","tool_name":"fetch_url","action_type":"tool_call","error":true,"latency_ms":4021}</span>', delay: 340 },
+    { text: '<span class="dm">|</span> <span class="er">!</span> latency_anomaly <span class="er">risk 0.84</span> &middot; fetch_url 4.0s vs 128ms baseline <span class="dm">(k=3.0 sigma)</span>', delay: 420 },
+    { text: '<span class="dm">|</span> <span class="ac">GET /health</span> &rarr; <span class="ok">200</span> <span class="dm">{"status":"ok"}</span>', delay: 260 },
+    { text: '<span class="dm">|</span> <span class="ac">GET /metrics</span> &rarr; <span class="ok">200</span> <span class="dm">prometheus exposition</span>', delay: 260 },
+    { text: '<span class="dm">──────────────────────────────────────────────────────────</span>', delay: 180 },
+    { text: '<span class="ok">✓</span> sidecar live &middot; fail-open: a bad event never closes the listener <span class="dm">(demo of the real server)</span>', delay: 320 }
+  ];
+
+  function runServe(){
+    stopCurrent();
+    currentCmd = 'serve';
+    setActiveTab('serve');
+    if(titleEl) titleEl.innerHTML = 'snagline serve &middot; 127.0.0.1:8787';
+    setBadge('serving', 'var(--green)', true);
+
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline serve --port 8787', 'cmd-echo');
+
+    var step = 0;
+    function nextStep(){
+      if(step >= SERVE_LINES.length){
+        setBadge('live', 'var(--green)', true);
+        return;
+      }
+      var s = SERVE_LINES[step++];
+      addLog(null, null, s.text);
+      if(REDUCED){
+        while(step < SERVE_LINES.length){ addLog(null, null, SERVE_LINES[step++].text); }
+        setBadge('live', 'var(--green)', true);
+        return;
+      }
+      runningTimer = setTimeout(nextStep, s.delay);
+    }
+    nextStep();
+  }
+
+  /* ───── COMMAND: HOOK ───── */
+  var HOOK_LINES = [
+    { text: '<span class="dm">|</span> stdin &lt; <span class="ac">{"tool_name":"search","tool_use_id":"tu_1","hook_event_name":"PostToolUseFailure"}</span>', delay: 300 },
+    { text: '<span class="ok">+</span> mapped hook payload &rarr; StepEvent <span class="dm">(paired PreToolUse/PostToolUse derives latency_ms)</span>', delay: 320 },
+    { text: '<span class="ok">✓</span> forwarded to <span class="ac">http://127.0.0.1:8787/events</span> <span class="dm">(200 OK in 3ms)</span>', delay: 300 },
+    { text: '<span class="dm">|</span> exit 0 <span class="dm">-- the bridge never blocks or breaks the agent it monitors</span>', delay: 260 }
+  ];
+
+  function runHook(){
+    stopCurrent();
+    currentCmd = 'hook';
+    setActiveTab('hook');
+    if(titleEl) titleEl.innerHTML = 'snagline hook &middot; PostToolUseFailure';
+    setBadge('bridging', 'var(--amber)', true);
+
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> cat hook-event.json | snagline hook --url http://127.0.0.1:8787/events', 'cmd-echo');
+
+    var step = 0;
+    function nextStep(){
+      if(step >= HOOK_LINES.length){
+        setBadge('forwarded', 'var(--green)', false);
+        return;
+      }
+      var h = HOOK_LINES[step++];
+      addLog(null, null, h.text);
+      if(REDUCED){
+        while(step < HOOK_LINES.length){ addLog(null, null, HOOK_LINES[step++].text); }
+        setBadge('forwarded', 'var(--green)', false);
+        return;
+      }
+      runningTimer = setTimeout(nextStep, h.delay);
+    }
+    nextStep();
+  }
+
+  /* ───── COMMAND: BASELINE ───── */
+  var BASELINE_LINES = [
+    { text: '<span class="ok">+</span> fitting healthy baseline from <span class="ac">healthy_run.jsonl</span> <span class="dm">(109 steps)</span>', delay: 320 },
+    { text: '<span class="dm">|</span> tool:search        n=42  mean=128.4ms   p95=210ms', delay: 260 },
+    { text: '<span class="dm">|</span> tool:summarize     n=18  mean=204.1ms   p95=302ms', delay: 260 },
+    { text: '<span class="dm">|</span> tool:fetch_url     n=12  mean=890.7ms   p95=1400ms', delay: 260 },
+    { text: '<span class="dm">──────────────────────────────────────────────────────────</span>', delay: 180 },
+    { text: '<span class="ok">✓</span> wrote <span class="ac">baseline.json</span> <span class="dm">-- load it with snagline load_baseline for goal-drift + latency calibration</span>', delay: 340 }
+  ];
+
+  function runBaseline(){
+    stopCurrent();
+    currentCmd = 'baseline';
+    setActiveTab('baseline');
+    if(titleEl) titleEl.innerHTML = 'snagline baseline &middot; healthy_run.jsonl';
+    setBadge('fitting', 'var(--accent)', true);
+
+    addLine('<span class="ts">' + getTimeStr() + '</span> <span class="dm">$</span> snagline baseline healthy_run.jsonl --output baseline.json', 'cmd-echo');
+
+    var step = 0;
+    function nextStep(){
+      if(step >= BASELINE_LINES.length){
+        setBadge('fitted', 'var(--green)', false);
+        return;
+      }
+      var b = BASELINE_LINES[step++];
+      addLog(null, null, b.text);
+      if(REDUCED){
+        while(step < BASELINE_LINES.length){ addLog(null, null, BASELINE_LINES[step++].text); }
+        setBadge('fitted', 'var(--green)', false);
+        return;
+      }
+      runningTimer = setTimeout(nextStep, b.delay);
+    }
+    nextStep();
+  }
+
   /* ───── COMMAND: HELP ───── */
   function runHelp(){
     stopCurrent();
@@ -1914,7 +2026,7 @@ $$('a[href^="#"]').forEach(function(a){
     addLine('  <span class="ac">hook</span>      - Universal command-hook bridge for external agent processes');
     addLine('  <span class="ac">baseline</span>  - Fit or retrain a persisted healthy per-tool baseline');
     addLine('  <span class="ac">clear</span>     - Clear terminal screen buffer');
-    addLine('<span class="dm">This terminal also responds to a demo-only </span><span class="ac">audit</span><span class="dm"> preset that visualizes the detector suite and fail-open guarantees; it is not a real snagline command (there is no `snagline audit`).</span>');
+    addLine('<span class="dm">This terminal animates the six real commands above and also responds to a demo-only </span><span class="ac">audit</span><span class="dm"> preset that visualizes the detector suite and fail-open guarantees; it is not a real snagline command (there is no `snagline audit`).</span>');
     addLine('<span class="dm">Tip: Click the preset tabs above or type any command and press Enter!</span>');
     setBadge('help', 'var(--ink-2)', false);
   }
@@ -1947,6 +2059,12 @@ $$('a[href^="#"]').forEach(function(a){
       runReplay(parts[1] || 'episode-042.jsonl');
     } else if(main === 'bench' || main === 'benchmark'){
       runBench();
+    } else if(main === 'serve' || main === 'server'){
+      runServe();
+    } else if(main === 'hook'){
+      runHook();
+    } else if(main === 'baseline'){
+      runBaseline();
     } else if(main === 'audit' || main === 'status'){
       runAudit();
     } else if(main === 'clear' || main === 'cls'){
