@@ -33,7 +33,7 @@ def test_emit_posts_failure_risk_fields_only() -> None:
         def __exit__(self, *exc):
             return False
 
-        def read(self):
+        def read(self, amt: int | None = None) -> bytes:
             return b"{}"
 
     def fake_urlopen(req, timeout=None):
@@ -85,7 +85,7 @@ class _Resp:
     def __exit__(self, *exc):
         return False
 
-    def read(self):
+    def read(self, amt: int | None = None) -> bytes:
         return b"{}"
 
 

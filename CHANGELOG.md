@@ -57,6 +57,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   horizontal-swipe pipeline, tube-light logo effect) (#291).
 
 ### Fixed
+- The network sinks cap the reply body they read and discard. `bounded_post`
+  documents its `max_bytes` argument as the guard against an endpoint that
+  streams an endless body, but `WebhookSink`, `SlackSink`, `PagerDutySink` and
+  the `snagline hook --url` forward all passed `None`, so the cap never
+  applied and the whole reply was buffered only to be thrown away. The
+  wall-clock deadline bounds *time*, not *memory*: a fast endless stream
+  allocates without bound well inside a 2 s budget, and the destination is
+  operator-supplied, so a misconfigured or hostile escalation endpoint could
+  drive unbounded allocation in the monitor's own process. They now share one
+  ceiling with the halt webhook (`_MAX_SINK_RESPONSE_BYTES`, 64 KiB) (#560).
 - The `error_cascade` score is graded again. The alarm fires *at* the
   threshold, so `n / threshold` was always `>= 1` and the `min` clamp was dead
   code: every alert, from a marginal "3 errors in 10 steps" to a total tool

@@ -164,7 +164,7 @@ def test_a_fast_post_is_delivered_and_silent(caplog) -> None:
         def __exit__(self, *exc):
             return False
 
-        def read(self):
+        def read(self, amt: int | None = None) -> bytes:
             return b"ok"
 
     def fake_urlopen(req, timeout=None):
