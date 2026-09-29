@@ -11,15 +11,22 @@ Mapping rules:
   * one yielded update item  -> one StepEvent per node key in that item
   * ``tool_name``            -> the node name
   * ``latency_ms``           -> wall time between the previous yield and this
-    one (a superstep boundary); this is a coarse per-node latency, which is
-    exactly what the CUSUM detector needs -- a sustained deviation, not an
-    exact per-invocation timing
-  * ``error``                -> the node's update dict carries a truthy
-    ``error`` key -- a node that caught its own failure and returned it in
-    state. A node that *raises* never arrives as an update: LangGraph
-    propagates the exception out of ``graph.stream()``. ``watch_graph`` catches
-    it, emits one error ``StepEvent`` so the failure still reaches the Monitor,
-    and re-raises so your own code sees the exception unchanged.
+    one (a superstep boundary), recorded on the event as coarse per-node
+    latency. Note it is NOT consumed by the CUSUM latency-anomaly detector:
+    that detector scores only ``tool_call`` steps (``action_type !=
+    "tool_call"`` is skipped) and deliberately ignores aggregate ``node_run``
+    supersteps, since a superstep spans a whole node (often a nested subgraph
+    or reasoning turn), and scoring it would flag every nested LangGraph run
+    as an anomaly (issue #10). The field is still carried for hosts and sinks
+    that want raw per-node timing; wrap tool leaves with a ``tool_call``
+    adapter if you want their latency CUSUM-monitored.
+  * ``error``                -> the node's update contains a truthy ``error``
+    key, or the update value is an Exception (LangGraph signals node errors
+    this way in updates mode). A node that *raises* never arrives as an
+    update: LangGraph propagates the exception out of ``graph.stream()``.
+    ``watch_graph`` catches it, emits one error ``StepEvent`` so the failure
+    still reaches the Monitor, and re-raises so your own code sees the
+    exception unchanged.
   * ``action_signature``     -> hash of (node name, sorted top-level update
     keys). Deliberately structural, not content: a node repeatedly producing
     the same *shape* of failed update is a loop; changing content is not.
