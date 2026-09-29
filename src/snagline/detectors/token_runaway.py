@@ -211,19 +211,25 @@ class TokenRunawayDetector:
     def load_state(self, state: dict[str, Any]) -> None:
         # Everything is built into locals and published only once the whole
         # snapshot has parsed. ``Monitor.restore_dict`` catches the exception
-        # a malformed entry raises and moves on, so assigning attribute-by-
-        # attribute -- or clearing ``_states`` and repopulating it per episode
-        # -- would leave the detector half-restored: some episodes rebuilt,
-        # the rest gone, and ``_totals`` / ``_warned`` / ``_breached`` still
-        # holding live values that no longer describe any of them, with the
-        # live state already discarded and nothing reporting the mismatch
-        # (issue #417). A rejected snapshot now leaves the detector exactly as
-        # it was.
+        # a malformed entry raises, logs "detector keeps its live state", and
+        # moves on, so publishing anything mid-parse makes that promise false:
+        # an entry that parses early lands in ``_states`` before a later entry
+        # raises, and ``_totals`` / ``_warned`` / ``_breached`` -- still
+        # mid-parse, or never reached -- then describe episodes whose CUSUM
+        # state came from the snapshot. The envelope latch can be lost while
+        # the baseline survives, so an already-breached episode re-warns and
+        # re-breaches on its next step (issue #417, missed here when the other
+        # detectors were fixed). A rejected snapshot now leaves the detector
+        # exactly as it was.
         restored: dict[str, _WelfordCUSUM] = {}
         for ep, raw in state.get("states", {}).items():
             s = _WelfordCUSUM(self.k, self.h)
             s.apply_core_state(raw)
-            self._states[ep] = s
-        self._totals = {ep: int(v) for ep, v in state.get("totals", {}).items()}
-        self._warned = {ep: bool(v) for ep, v in state.get("warned", {}).items()}
-        self._breached = {ep: bool(v) for ep, v in state.get("breached", {}).items()}
+            restored[ep] = s
+        new_totals = {ep: int(v) for ep, v in state.get("totals", {}).items()}
+        new_warned = {ep: bool(v) for ep, v in state.get("warned", {}).items()}
+        new_breached = {ep: bool(v) for ep, v in state.get("breached", {}).items()}
+        self._states = restored
+        self._totals = new_totals
+        self._warned = new_warned
+        self._breached = new_breached

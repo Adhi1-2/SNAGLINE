@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so PyPI renders a changelog entry in the project sidebar (#467).
 
 ### Fixed
+- `TokenRunawayDetector.load_state` now publishes its restored state only once
+  the whole snapshot has parsed, so a malformed entry leaves the detector on
+  its live state like every other detector (#417 hardened them; this one was
+  missed). Each parsed episode was written straight into `_states` and the
+  envelope counters were assigned only after the loop, so an entry that parsed
+  early was applied before a later one raised — the monitor's "detector keeps
+  its live state" warning was then false, and on a fresh restore an episode
+  ended up with a frozen CUSUM baseline but no budget total, so an
+  already-breached episode could re-warn and re-breach on its next step (#552).
 - The explicit `wrap_openai_client` / `wrap_anthropic_client` stream wrappers
   now support the documented `with stream as s:` and `async with stream as s:`
   forms. Implicit special-method lookup goes through the type slots and

@@ -504,6 +504,37 @@ def test_good_detectors_are_restored_around_a_bad_one():
     assert loop._windows == {}, "the bad detector is untouched, not cleared"
 
 
+def test_token_runaway_restore_is_atomic_when_a_later_entry_is_bad():
+    """``token_runaway`` published each parsed CUSUM state straight into
+    ``_states`` before a later malformed entry raised, so the monitor's
+    "detector keeps its live state" warning was false for it alone: a fresh
+    monitor ended up holding a snapshot baseline for an episode with no
+    envelope counters, so an already-breached episode could re-warn and
+    re-breach on its next step.
+    """
+    detectors, sinks = _composition()
+    source = Monitor(detectors, sinks)
+    _feed(source, _stream())
+    token = cast(TokenRunawayDetector, source._detectors[3])
+    live = token.dump_state()
+    assert live["breached"], "fixture: the stream must breach the token budget"
+
+    snapshot = source.snapshot_dict()
+    key = next(k for k in snapshot["detectors"] if k.endswith(":token_runaway"))
+    # "ep" parses and lands first; the torn second episode raises after it.
+    snapshot["detectors"][key]["states"]["ep-torn"] = {"n": "not-an-int"}
+
+    target = Monitor(*_composition())
+    target.restore_dict(snapshot)
+
+    after = cast(TokenRunawayDetector, target._detectors[3]).dump_state()
+    assert after["states"] == {}, (
+        "a rejected snapshot must land nothing, not the episodes parsed before "
+        f"the bad one: {after['states']}"
+    )
+    assert after["totals"] == {} and after["breached"] == {}
+
+
 def test_detector_load_state_is_atomic_when_a_count_is_bad():
     """A snapshot that parses partway must leave the detector's whole state,
     not a mix of the snapshot and live traffic (review of #402).
