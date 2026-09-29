@@ -31,7 +31,8 @@ TriggerType = Literal[
     # StepEvent timestamps at the top of ingest() -- never from the wall
     # clock, so replay stays deterministic. "idle_gap" marks a silence
     # between consecutive ingests; "wall_clock_budget" covers both the
-    # single pre-breach warning (score 0.8) and the breach itself (1.0).
+    # single pre-breach warning (score 0.7, kept inside the "warning" band so
+    # it is not paged like the breach) and the breach itself (1.0).
     "idle_gap",
     "wall_clock_budget",
     # Loop hardening modes (issue #89) and the side-effect guard. These are
