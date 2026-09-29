@@ -344,6 +344,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `auto/langchain.py` (whose `_wrap_one` never set the sentinel at all), and a
   second `wrap_client` that finds everything already wrapped stays quiet
   instead of warning that nothing was patchable (#336).
+- The `raw`, `langgraph` and `claude_code` adapters now stamp `StepEvent.timestamp`
+  from the same monotonic clock as the other live-instrumentation adapters. They
+  were the three holdouts reading `time.time()` (unix epoch, ~1.79e9) while the
+  rest read `time.perf_counter` (process-local, ~1e3-1e5), so an episode that
+  mixed them -- a raw-adapter host loop plus a claude_code bridge, for instance --
+  produced a ~1.79-billion-second delta on a single step. That fired both
+  time-axis risks as critical on one event and, because `elapsed` can never be
+  un-spent, latched `breached` forever: every later genuine step was scored
+  against an already exhausted `wall_clock_budget` and the episode could not
+  recover (#532).
+- The time axis now re-anchors instead of scoring a step interval no single step
+  can span (a day). A delta past that bound means the two events came from
+  different clock domains -- a mixed-adapter episode, a cross-process replay, or
+  an adapter reading times out of an external record -- and scoring it invented
+  an idle gap and a permanent breach out of one healthy event. The span is
+  dropped, budget already spent is kept, and the next event measures from a sane
+  reference. The bound is five orders of magnitude below the jump it guards
+  against, so the slowest real tool call still fires genuinely (#532).
+- The CONTINUUM adapter intentionally still stamps unix epoch: it pairs a
+  claim's observed time with its terminal record to report a real
+  claim-to-terminal duration, which is only meaningful when both sides come
+  from the same ledger clock. Combined with the re-anchoring bound above, a
+  CONTINUUM episode now degrades to a dropped interval rather than a fabricated
+  breach, so mixing it with a monotonic adapter is safe (#532).
 
 ### Security
 - The sidecar's mutating `POST` endpoints now check where a request came from,

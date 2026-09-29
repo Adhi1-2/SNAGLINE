@@ -20,12 +20,11 @@ from __future__ import annotations
 
 import itertools
 import logging
-import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from snagline.events import StepEvent, make_signature
+from snagline.events import StepEvent, make_signature, step_clock
 
 logger = logging.getLogger("snagline")
 
@@ -74,7 +73,7 @@ def watch(
         event = StepEvent(
             step_id=str(next(counter)),
             episode_id=episode_id,
-            timestamp=time.time(),
+            timestamp=step_clock(),
             action_type=action_type,
             action_signature=sig,
             tool_name=tool_name,

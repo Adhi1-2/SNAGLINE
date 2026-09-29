@@ -34,7 +34,7 @@ import time
 import uuid
 from typing import Any
 
-from snagline.events import StepEvent, make_signature
+from snagline.events import StepEvent, make_signature, step_clock
 
 _ERROR_EVENTS = {"PostToolUseFailure", "StopFailure"}
 
@@ -196,7 +196,7 @@ def payload_to_event(
     return StepEvent(
         step_id=step_id,
         episode_id=episode_id,
-        timestamp=timestamp if timestamp is not None else time.time(),
+        timestamp=timestamp if timestamp is not None else step_clock(),
         action_type=action_type,
         action_signature=make_signature(
             action_type, tool_for_sig, stable, *stable_parts

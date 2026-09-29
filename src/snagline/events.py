@@ -13,6 +13,7 @@ Design constraints honored here (see project.md §1):
 from __future__ import annotations
 
 import hashlib
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -36,7 +37,21 @@ class StepEvent:
 
     step_id: str
     episode_id: str
-    timestamp: float  # unix epoch seconds, float for sub-second precision
+    # Monotonic, process-local seconds from :func:`step_clock` -- the default
+    # and what every auto-instrumented adapter stamps (issue #155:
+    # ``time.time`` ticks at ~15.6 ms on Windows and quantizes sub-tick
+    # intervals away). The time-axis detectors consume this as a *delta*,
+    # which is only meaningful inside one clock domain (issue #532).
+    #
+    # Not universal: the CONTINUUM adapter deliberately stamps unix epoch,
+    # because it pairs a claim's observed time with its terminal record to
+    # compute a real claim-to-terminal duration, and that pairing is only
+    # meaningful in one shared domain (ledger times on both sides). Mixing
+    # that with a perf_counter is exactly the mismatch
+    # :func:`snagline.monitor.Monitor` re-anchors around. Hosts that replay a
+    # timeline across processes should rebase onto one clock rather than
+    # interleaving domains.
+    timestamp: float
     action_type: (
         str  # "tool_call" | "message" | "plan_step" | "observation" | adapter-defined
     )
@@ -107,3 +122,27 @@ def _make_signature(action_type: str, tool_name: str | None, *stable_parts: str)
 def _clear_signature_cache() -> None:
     """Drop every memoized signature (test hook; not part of the public API)."""
     _make_signature.cache_clear()
+
+
+def step_clock() -> float:
+    """The canonical clock for ``StepEvent.timestamp`` (issue #532).
+
+    The default for live instrumentation: read the timestamp field from this
+    helper rather than ``time.time()``, so a host's own events stay in the
+    same clock domain as the shipped adapters. ``time.time`` is wall-clock
+    epoch (~1.79e9) while this is monotonic and process-local (~1e3-1e5), so
+    mixing the two makes a single mixed-adapter step report a
+    ~1.79-billion-second gap and latches a fabricated, unrecoverable
+    ``wall_clock_budget`` breach plus a bogus ``idle_gap``.
+
+    An adapter that derives times from an external record (the CONTINUUM
+    ledger, a replayed file) may legitimately stamp its own domain instead;
+    that is a real measurement rather than a host clock read. The monitor
+    re-anchors rather than scoring a span past ``_IMPLAUSIBLE_STEP_SECONDS``,
+    so such a mix degrades to a dropped interval instead of a false alarm.
+
+    Monotonic (not epoch) because the detectors consume *deltas*, never
+    absolute times, and monotonic time cannot jump backwards under NTP or a
+    clock adjustment (issue #155).
+    """
+    return time.perf_counter()

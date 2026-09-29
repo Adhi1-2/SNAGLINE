@@ -84,6 +84,15 @@ class HaltDirective:
     timestamp: float = 0.0
 
 
+#: Upper bound on a plausible interval between two consecutive steps of one
+#: episode (issue #532). Deltas past this are a clock-domain mismatch, not a
+#: slow step: the shipped adapters stamp a process-local monotonic clock
+#: (~1e3-1e5s) while epoch-based or cross-process sources are ~1.79e9s, so a
+#: mixed episode jumps by ~10^9. A day is comfortably above any real tool call
+#: and ~5 orders of magnitude below the jump it guards against.
+_IMPLAUSIBLE_STEP_SECONDS = 86400.0
+
+
 class _EpisodeClock:
     """Per-episode time-axis state (issue #92).
 
@@ -530,6 +539,30 @@ class Monitor:
                 clock.anchored = True
                 return out
             delta = event.timestamp - clock.last_ts
+            if delta > _IMPLAUSIBLE_STEP_SECONDS:
+                # A delta no single step can span means the two events came
+                # from different clock domains -- a mixed-adapter episode
+                # where one source stamps epoch (~1.79e9) and the rest stamp
+                # the process-local monotonic clock (~1e3-1e5), a cross-process
+                # replay, or an adapter reading times out of an external record
+                # such as the CONTINUUM ledger (issue #532). Scoring it would
+                # report a ~1.79-billion-second idle gap and, worse, latch
+                # ``breached`` forever: ``elapsed`` can never be un-spent, so
+                # every later genuine step is scored against an
+                # already-exhausted budget. Re-anchor here instead: drop the
+                # span, keep budget already spent, and let the next event
+                # measure from a sane reference. Sources sharing one clock never
+                # trip this -- the bound is a day, and even the slowest real
+                # tool call is minutes.
+                self._log_fault_once(
+                    f"episode {event.episode_id} saw a {delta:.3g}s step "
+                    "interval, which no single step can span; the timestamps "
+                    "mix clock domains, so the time axis re-anchored instead "
+                    "of scoring it (instrumented events should stamp "
+                    "StepEvent.timestamp from snagline.events.step_clock)"
+                )
+                clock.last_ts = event.timestamp
+                return out
             if delta > 0.0:
                 # Out-of-order or skewed sources (merged adapter streams, clock
                 # skew between hook processes) must not reduce consumed budget

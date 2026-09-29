@@ -418,3 +418,91 @@ def test_restore_replaces_the_time_axis_like_everything_else() -> None:
         f"orphan clock survives restore: {m._clocks['A'].elapsed}s spent"
     )
     assert "B" in m._clocks
+
+
+def test_mixed_clock_domains_reanchor_instead_of_fabricating_a_breach() -> None:
+    """Issue #532: two adapters in one episode stamping different clocks.
+
+    The shipped adapters share one process-local monotonic clock, but a stray
+    epoch stamp (~1.79e9) meeting a monotonic one (~1e3) used to produce a
+    ~1.79-billion-second delta on a single step. That fired BOTH time-axis
+    risks as critical on one event and -- because ``elapsed`` can never be
+    un-spent -- latched ``breached`` forever, so the episode could not recover
+    even after every later step was genuine.
+    """
+    sink = CapturingSink()
+    m = _monitor(sink, max_episode_wall_seconds=60.0, idle_warn_seconds=5.0)
+
+    # A monotonic-clock step, then an epoch step into the same episode.
+    _feed(m, _event("a1", 100.0), _event("a2", 1_790_000_000.0))
+
+    assert sink.risks == [], (
+        "a clock-domain jump must not score an idle gap or a budget breach: "
+        f"{[(r.trigger, r.score) for r in sink.risks]}"
+    )
+
+    # The span was dropped, not spent: the episode is not wedged, and steps
+    # after the jump still score against a sane, moving reference.
+    _feed(
+        m,
+        _event("a3", 1_790_000_000.0 + 50.0),  # 50s in -> warning at 0.8 of 60s
+        _event("a4", 1_790_000_000.0 + 70.0),  # 70s in -> breach
+    )
+    # The warning precedes the breach (a jump straight past the budget must
+    # not leave a stale warning behind it -- issue #224).
+    horizon = [r for r in sink.risks if r.trigger == "wall_clock_budget"]
+    assert len(horizon) == 2
+    assert horizon[0].score < 1.0
+    assert horizon[1].score == 1.0
+
+
+def test_mixed_clock_domains_warn_once_and_stay_healthy(caplog) -> None:
+    """The re-anchor is logged fault-once per episode and never raises."""
+    sink = CapturingSink()
+    m = _monitor(sink, max_episode_wall_seconds=60.0, idle_warn_seconds=5.0)
+
+    _feed(m, _event("b0", 100.0))  # monotonic reference point
+    with caplog.at_level(logging.ERROR):
+        for i in range(1, 6):  # a foreign epoch clock, step after step
+            _feed(m, _event(f"b{i}", 1_790_000_000.0 + i))
+
+    assert len(sink.risks) == 0
+    assert sum("clock domains" in rec.message for rec in caplog.records) == 1, (
+        "a persistently mismatched source must warn once, not per step"
+    )
+
+
+def test_continuum_epoch_source_mixed_with_a_monotonic_source_stays_healthy() -> None:
+    """The CONTINUUM adapter legitimately stamps unix epoch, not step_clock.
+
+    It pairs a claim's observed time with its terminal record to report a real
+    claim-to-terminal duration, so its timestamps cannot move to a monotonic
+    clock without breaking that measurement. This pins the documented
+    contract instead: mixing it with a monotonic adapter degrades to a dropped
+    interval, not a fabricated breach (#532).
+    """
+    sink = CapturingSink()
+    m = _monitor(sink, max_episode_wall_seconds=60.0, idle_warn_seconds=5.0)
+
+    # A CONTINUUM ledger event (epoch), then live instrumentation (perf_counter).
+    _feed(m, _event("cc0", 1_790_000_000.0))
+    _feed(m, _event("cc1", 12_345.0))
+    # And the episode keeps working normally afterwards.
+    _feed(m, _event("cc2", 12_346.0), _event("cc3", 12_347.0))
+
+    assert sink.risks == [], f"a mixed-domain episode must not alarm: {sink.risks}"
+
+
+def test_a_plausibly_slow_step_still_fires_genuinely() -> None:
+    """The re-anchor bound is a day: a real multi-minute step must still fire.
+
+    A tool call that genuinely hangs past the budget is a real breach and must
+    not be swallowed by the clock-domain guard.
+    """
+    sink = CapturingSink()
+    m = _monitor(sink, max_episode_wall_seconds=60.0, idle_warn_seconds=5.0)
+
+    _feed(m, _event("c1", 100.0), _event("c2", 100.0 + 3600.0))  # 1 hour
+
+    assert [r.trigger for r in sink.risks] == ["idle_gap", "wall_clock_budget"]
+    assert sink.risks[1].score == 1.0

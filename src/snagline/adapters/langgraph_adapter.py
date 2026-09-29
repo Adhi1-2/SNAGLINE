@@ -73,7 +73,7 @@ def watch_graph(
     function wraps the stream, so it cannot know when the caller is done with
     the Monitor.
     """
-    clk = clock or time.monotonic
+    clk = clock or time.perf_counter
     counter = itertools.count()
     last = clk()
     iterator = iter(stream)
@@ -95,7 +95,7 @@ def watch_graph(
                 StepEvent(
                     step_id=str(next(counter)),
                     episode_id=episode_id,
-                    timestamp=time.time(),
+                    timestamp=now,
                     action_type="node_run",
                     action_signature=make_signature(
                         "node_run", None, type(exc).__name__
@@ -122,7 +122,7 @@ def watch_graph(
                 event = StepEvent(
                     step_id=str(next(counter)),
                     episode_id=episode_id,
-                    timestamp=time.time(),
+                    timestamp=now,
                     action_type="node_run",
                     action_signature=make_signature("node_run", str(node), shape),
                     tool_name=str(node),
