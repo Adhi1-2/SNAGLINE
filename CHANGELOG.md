@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The landing-page terminal now runs `serve`, `hook`, and `baseline`, the
+  three subcommands its own simulated `--help` and its "command not
+  recognized" fallback advertised but did not dispatch: typing one of them
+  answered with the error that had just suggested it. Each new preset animates
+  the real command's output (the `serve` banner mirrors `snagline serve`'s
+  actual listening line), and a regression test now asserts every command the
+  terminal advertises is one its dispatcher routes (#552).
 - `python -m snagline` now works: a `snagline/__main__.py` package entry point
   dispatches into `cli.main`, matching the `snagline` console script. Previously
   only the bare `snagline` command and `python -m snagline.cli` ran; `python -m

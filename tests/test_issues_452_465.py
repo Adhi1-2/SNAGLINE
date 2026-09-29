@@ -250,3 +250,43 @@ def test_site_terminal_help_lists_only_real_commands():
     )
     # ...but the demo preset itself stays, honestly labelled.
     assert "not a real snagline command" in block
+
+
+def test_site_terminal_dispatches_every_command_it_advertises():
+    """The simulated ``--help`` lists the six real subcommands (issue #455),
+    and the dispatcher must route each one -- help text and the "command not
+    recognized" fallback both suggest them, so a listed-but-unrouted command
+    sends a newcomer straight into an error. #455 guarded the listing; this
+    guards the wiring behind it.
+    """
+    if not SITE_INDEX.is_file():
+        pytest.skip(f"{SITE_INDEX} not present in this checkout")
+
+    text = SITE_INDEX.read_text(encoding="utf-8")
+    js = "\n".join(re.findall(r"<script[^>]*>(.*?)</script>", text, re.S))
+
+    # The commands runHelp advertises as "Available commands".
+    advertised = set(
+        re.findall(r"addLine\('  <span class=\"ac\">([a-z]+)</span>", js)
+    )
+    # The dispatcher's own routed names (aliases included).
+    routed = set(re.findall(r"main === '([a-z]+)'", js))
+    # ``clear`` is routed through the real runClear, not the main dispatch
+    # table's name list, so it is exempt from the routing check.
+    unrouted = {c for c in advertised - routed if c != "clear"}
+
+    assert advertised, "could not read the simulated --help command list"
+    assert not unrouted, (
+        "the site terminal advertises commands its own dispatcher does not "
+        f"route, so typing one errors out: {sorted(unrouted)}"
+    )
+
+    # The "not recognized" fallback is the second place a stale suggestion can
+    # live; it must not name a command that also fails to dispatch.
+    fallback = text.split("command not recognized")[1].split("setBadge")[0]
+    suggested = set(re.findall(r'<span class="ac">([a-z]+)</span>', fallback))
+    bad = {c for c in suggested - routed if c != "clear"}
+    assert not bad, (
+        "the not-recognized error suggests commands that also fail to "
+        f"dispatch: {sorted(bad)}"
+    )
