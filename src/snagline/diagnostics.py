@@ -5,7 +5,7 @@ Provides in-memory performance profiling and event step rate counters.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 DEFAULT_WINDOW_SECONDS = 120
 DEFAULT_MAX_SAMPLES = 1000
@@ -35,3 +35,16 @@ class DiagnosticMetrics:
         if len(series) >= self.max_samples:
             series.pop(0)
         series.append(value)
+
+    def percentile(self, name: str, p: float) -> Optional[float]:
+        """Compute p-th percentile from recorded timing values."""
+        series = self.timings.get(name)
+        if not series:
+            return None
+        sorted_vals = sorted(series)
+        k = (len(sorted_vals) - 1) * (p / 100.0)
+        f = int(k)
+        c = min(f + 1, len(sorted_vals) - 1)
+        d0 = sorted_vals[f] * (c - k)
+        d1 = sorted_vals[c] * (k - f)
+        return d0 + d1
