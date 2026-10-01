@@ -17,3 +17,12 @@ def test_diagnostic_metrics_ring_buffer_cap():
     for i in range(5):
         metrics.record_timing("latency", float(i))
     assert metrics.timings["latency"] == [2.0, 3.0, 4.0]
+
+def test_diagnostic_metrics_percentile():
+    metrics = DiagnosticMetrics()
+    for val in [10.0, 20.0, 30.0, 40.0, 50.0]:
+        metrics.record_timing("lat", val)
+    assert metrics.percentile("lat", 50.0) == 30.0
+    assert metrics.percentile("lat", 0.0) == 10.0
+    assert metrics.percentile("lat", 100.0) == 50.0
+    assert metrics.percentile("missing", 50.0) is None
