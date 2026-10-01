@@ -37,14 +37,14 @@ class DiagnosticMetrics:
         series.append(value)
 
     def percentile(self, name: str, p: float) -> Optional[float]:
-        """Compute p-th percentile from recorded timing values."""
+        """Compute p-th percentile from recorded timing values via linear interpolation."""
         series = self.timings.get(name)
-        if not series:
+        if not series or not (0.0 <= p <= 100.0):
             return None
         sorted_vals = sorted(series)
         k = (len(sorted_vals) - 1) * (p / 100.0)
         f = int(k)
         c = min(f + 1, len(sorted_vals) - 1)
-        d0 = sorted_vals[f] * (c - k)
-        d1 = sorted_vals[c] * (k - f)
-        return d0 + d1
+        if f == c:
+            return float(sorted_vals[f])
+        return sorted_vals[f] * (c - k) + sorted_vals[c] * (k - f)
