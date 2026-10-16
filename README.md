@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+" /></a>
   <a href="https://pypi.org/project/snagline/"><img src="https://img.shields.io/pypi/v/snagline?style=flat-square&label=PyPI" alt="PyPI" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License" /></a>
   <a href="https://github.com/Cyrax321/SNAGLINE/issues"><img src="https://img.shields.io/github/issues/Cyrax321/SNAGLINE?style=flat-square" alt="Issues" /></a>
   <a href="https://github.com/Cyrax321/SNAGLINE/actions/workflows/ci.yml"><img src="https://github.com/Cyrax321/SNAGLINE/actions/workflows/ci.yml/badge.svg?style=flat-square" alt="Tests" /></a>
 </p>
@@ -800,7 +800,7 @@ For a full account of what is verified, believed, and neither, see the [issue tr
 
 ## Contributing
 
-Contributions are welcome. This project is open source under MIT and deliberately built to be extended: by researchers validating detection semantics, by engineers adding new adapters or detectors, and by anyone turning the planned roadmap into reality. A good place to start is the `good first issue` label on the [issue tracker](https://github.com/Cyrax321/SNAGLINE/issues).
+Contributions are welcome. This project is open source under Apache-2.0 and deliberately built to be extended: by researchers validating detection semantics, by engineers adding new adapters or detectors, and by anyone turning the planned roadmap into reality. A good place to start is the `good first issue` label on the [issue tracker](https://github.com/Cyrax321/SNAGLINE/issues).
 
 - [docs/ADAPTER_GUIDE.md](docs/ADAPTER_GUIDE.md) -- wire any framework into SNAGLINE in an afternoon.
 - [docs/DETECTOR_GUIDE.md](docs/DETECTOR_GUIDE.md) -- the detector contract, constraints, and test shape.
@@ -825,7 +825,21 @@ Open an issue before submitting large PRs.
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+Apache-2.0 - see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Apache-2.0 is permissive: anyone may use, modify and redistribute this code,
+including commercially, provided the copyright and license notices travel with
+redistributions. It adds two things MIT did not have: an express patent grant
+from every contributor, and an explicit requirement that modified files carry
+prominent change notices.
+
+Releases up to and including `0.1.0` were MIT-licensed and remain so in
+perpetuity -- the MIT grant to anyone who received those versions is not
+revoked. Apache-2.0 applies from the next release onward.
+
+The **detector ideas** are not licensed and cannot be: copyright covers code,
+not concepts. Anyone may reimplement the loop, cascade, CUSUM or stagnation
+detectors from scratch. What this license governs is the implementation.
 
 ---
 

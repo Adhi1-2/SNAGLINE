@@ -170,7 +170,8 @@ content.
 snagline/
 ├── README.md
 ├── ARCHITECTURE.md                 # this document, trimmed for repo consumption
-├── LICENSE                         # MIT
+├── LICENSE                         # Apache-2.0
+├── NOTICE                         # attribution carried forward (Apache §4(d))
 ├── pyproject.toml
 ├── src/
 │   └── snagline/
@@ -831,9 +832,11 @@ slack      = ["httpx>=0.27"]
 all        = ["snagline[langchain,langgraph,autogen,crewai,openai,anthropic,continuum,ml,drift,slack]"]
 ```
 
-MIT license (matches the open-source, low-friction-adoption goal; avoid
-anything copyleft here, since the whole point is "embed this into any
-project easily").
+Apache-2.0 (section 12). Permissive, so the low-friction-adoption goal still
+holds -- no copyleft, so it still drops into any project easily -- and it adds
+an express patent grant plus mandatory change notices on modified files.
+Superseded the original MIT choice on 2026-10-13; pre-0.1.1 releases stay MIT
+in perpetuity.
 
 ---
 

@@ -62,6 +62,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unauthenticated probe into a handler crash (#375).
 
 ### Changed
+- **License: MIT → Apache-2.0**, effective from the next release. Permissive
+  either way, so the low-friction-adoption goal is unchanged — no copyleft — but
+  Apache-2.0 adds an express patent grant from every contributor and requires
+  prominent change notices on modified files. `LICENSE` carries the canonical
+  Apache-2.0 text; a new `NOTICE` records attribution and provenance, and
+  section 4(d) now makes redistributions carry it forward. `pyproject.toml`
+  moves from the deprecated `license = { text = ... }` table to the PEP 639
+  SPDX expression `license = "Apache-2.0"`, which drops the
+  `License :: OSI Approved :: MIT License` trove classifier (superseded by the
+  expression) and raises the setuptools floor to 77 so the expression is
+  understood by every build. Verified by building: the wheel metadata reads
+  `License-Expression: Apache-2.0` with both `LICENSE` and `NOTICE` in
+  `dist-info/licenses/`.
+  **Relicensing is prospective only.** Releases up to and including 0.1.0 were
+  MIT, and the MIT grant to anyone holding those copies is perpetual and
+  unaffected by this change — Apache-2.0 binds future versions only. The
+  detector *concepts* remain free for anyone to reimplement from scratch;
+  copyright covers the code, not the ideas.
 - CI hygiene: the accuracy-gate comment in `ci.yml` now says "109-episode
   corpus" to match the committed fixtures (68 labeled + 41 healthy controls,
   the README already reflected 109) (#470); `stale.yml` no longer exempts a
