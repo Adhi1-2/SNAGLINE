@@ -50,6 +50,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which is the usual way to invoke a tool when its Scripts directory is not on
   PATH (#487).
 
+### Added
+- `snagline.authorize` -- a pre-execution authorization gate: decide
+  `allow`/`ask`/`deny` for a tool call **before** it runs, from a declarative
+  policy (Python rules or a JSON/TOML document). Wired into the Claude Code
+  bridge as `adapters.claude_code.decide_payload`, which returns the
+  `PreToolUse` `hookSpecificOutput` JSON for `ask`/`deny`.
+
+  This fills a real gap rather than adding a feature: until now every part of
+  SNAGLINE observed a step *after* it happened. `Monitor(policy=...)` escalates
+  a detected risk (issue #93) and the halt webhook can return an advisory
+  `pause`, but nothing could refuse a tool call, because the tool had already
+  run by the time SNAGLINE saw it.
+
+  It is deliberately outside the core. `Monitor.ingest()` cannot reach it, so
+  `Config.fail_open=True` remains structural rather than a behaviour that could
+  regress; it is reachable only at an adapter boundary, where a host has
+  already asked whether a tool may run; and it is not re-exported from the
+  top-level package, so adopting it is a visible import rather than a side
+  effect. It is fail-open by default -- no rule matched, a rule raised, an
+  unrecognised tool, or a `PreToolUse` payload with no `tool_name` all resolve
+  to `allow` -- with `default_decision`, `rule_error_decision` and
+  `unknown_tool_decision` as the explicit opt-ins to strictness. An `allow`
+  emits *nothing* rather than an explicit allow, so the gate can only tighten
+  Claude Code's native permission flow, never loosen it. Strictest-verdict-wins
+  (deny > ask > allow) rather than first-match-wins, so rule order cannot
+  change an outcome and an allowlist written above a denylist is harmless.
+
+  Out of scope by design: content inspection (secrets, PII), risk scoring, and
+  audit persistence. A policy here is a set of rules over which tool is being
+  called on what resource.
+
+  Five defects were found in review and fixed before merge, three of them
+  fail-open holes:
+
+  - `Grep`/`Glob` requests resolved their resource to the search `pattern`
+    rather than the searched `path`, so a Grep scoped to `path=/etc/ssh` walked
+    straight past a `deny_resource_glob("/etc/ssh/*")` rule. The resource key
+    list is now ordered with `path` first.
+  - `DecisionResult.allowed` was true for `ask` as well as `allow` (it excluded
+    only `deny`), so the natural caller shape `if policy.decide(req): run()`
+    executed a request whose policy had asked for approval. `allowed` now means
+    `allow` and nothing else.
+  - An explicit `"default_decision": null` in a policy document resolved to
+    `allow` instead of raising, so a policy store that nulls unset fields would
+    produce a policy permitting everything. Absent and explicit-null are now
+    distinguished, and null raises.
+  - `policy_from_file` accepted duplicate JSON keys, and `json.loads` keeps the
+    last, so a second `rules` key silently erased a deny list. An
+    `object_pairs_hook` now rejects duplicates at every object level.
+  - `ToolRequest.tool_input` retained the whole host mapping, so
+    `Write.content` and `Edit.new_string` -- file bodies -- sat in the object
+    and in its `repr`, contradicting the no-content-retention invariant.
+    Content-bearing keys are now replaced with a marker and oversized
+    structural values truncated, and the resource is read from the redacted
+    copy so the cap cannot be bypassed through the field a policy matches on.
+
 ### Security
 - The sidecar's auth token is now compared with `hmac.compare_digest` instead
   of `==`. `str.__eq__` returns at the first differing character, so its
