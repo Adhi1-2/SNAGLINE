@@ -393,7 +393,9 @@ def test_policy_from_dict_rejects_a_non_object_rule() -> None:
 def test_rule_with_typo_d_key_raises_instead_of_building_an_empty_rule() -> None:
     """A typo'd key used to be ignored, leaving a rule that matches nothing."""
     with pytest.raises(PolicyError, match=r"rules\[0\]\.pattern"):
-        policy_from_dict({"rules": [{"type": "deny_resource", "pattern": ["/etc/shadow"]}]})
+        policy_from_dict(
+            {"rules": [{"type": "deny_resource", "pattern": ["/etc/shadow"]}]}
+        )
 
 
 def test_rule_with_typo_d_tools_key_raises() -> None:
