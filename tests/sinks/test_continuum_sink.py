@@ -8,6 +8,7 @@ storage when CONTINUUM is importable; it skips cleanly otherwise (zero-dep CI).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
@@ -144,6 +145,12 @@ def test_real_actionledger_flags_review() -> None:
 
         def last_sequence(self, run_id: str) -> int:
             return len(self.events)
+
+        @contextlib.contextmanager
+        def atomic_claim(
+            self, run_id: str, key: str | None = None, **kwargs: Any
+        ) -> Any:
+            yield
 
         def append_event(
             self,
