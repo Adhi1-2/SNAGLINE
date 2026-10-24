@@ -2,7 +2,13 @@ name: PR Bot and Labeler
 
 on:
   pull_request_target:
-    types: [opened, closed]
+    types: [opened, synchronize, reopened, edited, closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to label (leave empty to label all open PRs)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -13,17 +19,15 @@ jobs:
   pr-automation:
     runs-on: ubuntu-latest
     steps:
-      - name: Run PR Bot
+      - name: Run PR Bot and Labeler
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
-            const pr = context.payload.pull_request;
-            const author = pr.user.login;
-            const prNumber = pr.number;
             const repoUrl = `https://github.com/${owner}/${repo}`;
 
-            // Helper to safely ensure a label exists before applying it
+            const ALL_SIZE_LABELS = ['size/XS', 'size/S', 'size/M', 'size/L', 'size/XL'];
+
             async function ensureLabel(name, color, description) {
               try {
                 await github.rest.issues.getLabel({ owner, repo, name });
@@ -44,15 +48,12 @@ jobs:
               }
             }
 
-            // --- 1. HANDLING PR OPENED ---
-            if (context.payload.action === 'opened') {
-              const labelsToAdd = [];
-
-              // Determine PR size label
+            async function labelSinglePR(pr) {
+              const prNumber = pr.number;
               const changes = (pr.additions || 0) + (pr.deletions || 0);
+
               let sizeLabel = 'size/M';
               let sizeColor = 'fef2c0';
-
               if (changes < 10) {
                 sizeLabel = 'size/XS';
                 sizeColor = 'c5def5';
@@ -71,36 +72,122 @@ jobs:
               }
 
               await ensureLabel(sizeLabel, sizeColor, `PR with ${changes} changes`);
-              labelsToAdd.push(sizeLabel);
 
-              // Determine type label based on PR title prefix
-              const title = pr.title.toLowerCase();
-              if (title.startsWith('feat') || title.startsWith('feature')) {
-                await ensureLabel('enhancement', 'a2eeef', 'New feature');
-                labelsToAdd.push('enhancement');
-              } else if (title.startsWith('fix') || title.startsWith('bug')) {
-                await ensureLabel('bug', 'd73a4a', 'Bug fix');
-                labelsToAdd.push('bug');
-              } else if (title.startsWith('docs')) {
-                await ensureLabel('documentation', '0075ca', 'Documentation update');
-                labelsToAdd.push('documentation');
-              } else if (title.startsWith('chore') || title.startsWith('refactor')) {
-                await ensureLabel('chore', 'cfd3d7', 'Maintenance or refactoring');
-                labelsToAdd.push('chore');
+              const currentLabels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+                owner,
+                repo,
+                issue_number: prNumber,
+                per_page: 100
+              });
+              const currentNames = new Set(currentLabels.map(l => l.name));
+
+              // Remove outdated size labels
+              for (const oldSize of ALL_SIZE_LABELS) {
+                if (oldSize !== sizeLabel && currentNames.has(oldSize)) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner,
+                      repo,
+                      issue_number: prNumber,
+                      name: oldSize
+                    });
+                  } catch (e) {
+                    console.log(`Could not remove old size ${oldSize}:`, e.message);
+                  }
+                }
               }
 
-              // Apply labels
-              if (labelsToAdd.length > 0) {
+              const toAdd = [];
+              if (!currentNames.has(sizeLabel)) {
+                toAdd.push(sizeLabel);
+              }
+
+              // Determine type label based on PR title prefix
+              const title = (pr.title || '').trim().toLowerCase();
+              if (title.startsWith('feat') || title.startsWith('feature')) {
+                await ensureLabel('enhancement', 'a2eeef', 'New feature');
+                if (!currentNames.has('enhancement')) toAdd.push('enhancement');
+              } else if (title.startsWith('fix') || title.startsWith('bug')) {
+                await ensureLabel('bug', 'd73a4a', 'Bug fix');
+                if (!currentNames.has('bug')) toAdd.push('bug');
+              } else if (title.startsWith('docs') || title.startsWith('doc')) {
+                await ensureLabel('documentation', '0075ca', 'Documentation update');
+                if (!currentNames.has('documentation')) toAdd.push('documentation');
+              } else if (title.startsWith('chore') || title.startsWith('refactor') || title.startsWith('perf')) {
+                await ensureLabel('chore', 'cfd3d7', 'Maintenance or refactoring');
+                if (!currentNames.has('chore')) toAdd.push('chore');
+              } else if (title.startsWith('test')) {
+                await ensureLabel('tests', '1d76db', 'Test additions or modifications');
+                if (!currentNames.has('tests')) toAdd.push('tests');
+              } else if (title.startsWith('ci')) {
+                await ensureLabel('ci', 'e99695', 'Continuous integration updates');
+                if (!currentNames.has('ci')) toAdd.push('ci');
+              } else if (title.startsWith('bench')) {
+                await ensureLabel('benchmark', 'fef2c0', 'Benchmark additions or changes');
+                if (!currentNames.has('benchmark')) toAdd.push('benchmark');
+              } else if (title.startsWith('build')) {
+                await ensureLabel('build', 'c2e0c6', 'Build system changes');
+                if (!currentNames.has('build')) toAdd.push('build');
+              }
+
+              if (toAdd.length > 0) {
                 await github.rest.issues.addLabels({
                   owner,
                   repo,
                   issue_number: prNumber,
-                  labels: labelsToAdd
+                  labels: toAdd
                 });
+                console.log(`PR #${prNumber}: Added labels [${toAdd.join(', ')}]`);
               }
+            }
 
-              // Welcome comment with repo star call to action
-              const welcomeComment = `### 👋 Welcome @${author}!
+            // --- 1. HANDLING MANUAL DISPATCH ---
+            if (context.eventName === 'workflow_dispatch') {
+              const targetPr = context.payload.inputs.pr_number;
+              if (targetPr) {
+                const { data: pr } = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: parseInt(targetPr, 10)
+                });
+                await labelSinglePR(pr);
+              } else {
+                console.log('Fetching all open PRs to label...');
+                const openPRs = await github.paginate(github.rest.pulls.list, {
+                  owner,
+                  repo,
+                  state: 'open',
+                  per_page: 100
+                });
+                for (const pr of openPRs) {
+                  const { data: fullPr } = await github.rest.pulls.get({
+                    owner,
+                    repo,
+                    pull_number: pr.number
+                  });
+                  await labelSinglePR(fullPr);
+                }
+              }
+              return;
+            }
+
+            // --- 2. HANDLING PR EVENTS ---
+            const pr = context.payload.pull_request;
+            const author = pr.user.login;
+            const prNumber = pr.number;
+
+            if (context.payload.action !== 'closed') {
+              // Automatically label size and type on open, sync, reopen, edit
+              const { data: fullPr } = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: prNumber
+              });
+              await labelSinglePR(fullPr);
+
+              // Post welcome comment on PR opened
+              if (context.payload.action === 'opened') {
+                const welcomeComment = `### 👋 Welcome @${author}!
 Thank you for opening this pull request to **${repo}**.
 
 #### 📋 Quick Review Checklist
@@ -112,16 +199,14 @@ Thank you for opening this pull request to **${repo}**.
 ⭐ **Enjoying this project?**
 Support the maintainers by [**starring the repository**](${repoUrl})!`;
 
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: prNumber,
-                body: welcomeComment
-              });
-            }
-
-            // --- 2. HANDLING PR CLOSED (END COMMENTING BOT) ---
-            if (context.payload.action === 'closed') {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body: welcomeComment
+                });
+              }
+            } else if (context.payload.action === 'closed') {
               if (pr.merged) {
                 const mergedComment = `### 🎉 Congratulations @${author}!
 Your pull request has been successfully **merged** into \`${pr.base.ref}\`.

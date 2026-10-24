@@ -4,6 +4,8 @@ on:
   workflow_run:
     workflows: ["PR Status Labels"]
     types: [completed]
+  pull_request_target:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -22,7 +24,10 @@ permissions:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' && github.event.label.name == 'ready to merge') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     steps:
       - name: Download intent artifact
         if: ${{ github.event_name == 'workflow_run' }}
@@ -75,6 +80,19 @@ jobs:
               const prNum = parseInt(context.payload.inputs.pr_number, 10);
               intent = {
                 pr_number: prNum,
+                add_label: "ready to merge",
+                remove_labels: ["awaiting review", "changes requested"],
+                thank: true,
+              };
+            } else if (context.eventName === "pull_request_target" && context.payload.action === "labeled") {
+              const labelName = context.payload.label?.name;
+              if (labelName !== "ready to merge") {
+                core.info("Labeled event for non-ready-to-merge label: " + labelName);
+                return;
+              }
+              const pr = context.payload.pull_request;
+              intent = {
+                pr_number: pr.number,
                 add_label: "ready to merge",
                 remove_labels: ["awaiting review", "changes requested"],
                 thank: true,
