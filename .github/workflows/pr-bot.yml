@@ -1,0 +1,149 @@
+name: PR Bot and Labeler
+
+on:
+  pull_request_target:
+    types: [opened, closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  pr-automation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run PR Bot
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const author = pr.user.login;
+            const prNumber = pr.number;
+            const repoUrl = `https://github.com/${owner}/${repo}`;
+
+            // Helper to safely ensure a label exists before applying it
+            async function ensureLabel(name, color, description) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (err) {
+                if (err.status === 404) {
+                  try {
+                    await github.rest.issues.createLabel({
+                      owner,
+                      repo,
+                      name,
+                      color,
+                      description
+                    });
+                  } catch (createErr) {
+                    console.log(`Note: could not create label ${name}:`, createErr.message);
+                  }
+                }
+              }
+            }
+
+            // --- 1. HANDLING PR OPENED ---
+            if (context.payload.action === 'opened') {
+              const labelsToAdd = [];
+
+              // Determine PR size label
+              const changes = (pr.additions || 0) + (pr.deletions || 0);
+              let sizeLabel = 'size/M';
+              let sizeColor = 'fef2c0';
+
+              if (changes < 10) {
+                sizeLabel = 'size/XS';
+                sizeColor = 'c5def5';
+              } else if (changes < 50) {
+                sizeLabel = 'size/S';
+                sizeColor = 'bfdadc';
+              } else if (changes < 250) {
+                sizeLabel = 'size/M';
+                sizeColor = 'fef2c0';
+              } else if (changes < 1000) {
+                sizeLabel = 'size/L';
+                sizeColor = 'fbca04';
+              } else {
+                sizeLabel = 'size/XL';
+                sizeColor = 'd93f0b';
+              }
+
+              await ensureLabel(sizeLabel, sizeColor, `PR with ${changes} changes`);
+              labelsToAdd.push(sizeLabel);
+
+              // Determine type label based on PR title prefix
+              const title = pr.title.toLowerCase();
+              if (title.startsWith('feat') || title.startsWith('feature')) {
+                await ensureLabel('enhancement', 'a2eeef', 'New feature');
+                labelsToAdd.push('enhancement');
+              } else if (title.startsWith('fix') || title.startsWith('bug')) {
+                await ensureLabel('bug', 'd73a4a', 'Bug fix');
+                labelsToAdd.push('bug');
+              } else if (title.startsWith('docs')) {
+                await ensureLabel('documentation', '0075ca', 'Documentation update');
+                labelsToAdd.push('documentation');
+              } else if (title.startsWith('chore') || title.startsWith('refactor')) {
+                await ensureLabel('chore', 'cfd3d7', 'Maintenance or refactoring');
+                labelsToAdd.push('chore');
+              }
+
+              // Apply labels
+              if (labelsToAdd.length > 0) {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  labels: labelsToAdd
+                });
+              }
+
+              // Welcome comment with repo star call to action
+              const welcomeComment = `### 👋 Welcome @${author}!
+Thank you for opening this pull request to **${repo}**.
+
+#### 📋 Quick Review Checklist
+- [ ] Automated tests pass
+- [ ] PR title follows conventional format (e.g. \`feat:\`, \`fix:\`, \`docs:\`)
+- [ ] Documentation updated if relevant
+
+---
+⭐ **Enjoying this project?**
+Support the maintainers by [**starring the repository**](${repoUrl})!`;
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: welcomeComment
+              });
+            }
+
+            // --- 2. HANDLING PR CLOSED (END COMMENTING BOT) ---
+            if (context.payload.action === 'closed') {
+              if (pr.merged) {
+                const mergedComment = `### 🎉 Congratulations @${author}!
+Your pull request has been successfully **merged** into \`${pr.base.ref}\`.
+
+Thank you for contributing to **${repo}**. Every contribution makes this project better!
+
+⭐ If you have not yet, please consider [**starring the repository**](${repoUrl}) to show your support!`;
+
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body: mergedComment
+                });
+              } else {
+                const closedComment = `👋 @${author}, this pull request has been closed. Thank you for your time and effort!`;
+
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body: closedComment
+                });
+              }
+            }
