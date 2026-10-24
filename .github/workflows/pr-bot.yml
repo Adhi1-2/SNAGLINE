@@ -187,17 +187,19 @@ jobs:
 
               // Post welcome comment on PR opened
               if (context.payload.action === 'opened') {
-                const welcomeComment = `### 👋 Welcome @${author}!
-Thank you for opening this pull request to **${repo}**.
-
-#### 📋 Quick Review Checklist
-- [ ] Automated tests pass
-- [ ] PR title follows conventional format (e.g. \`feat:\`, \`fix:\`, \`docs:\`)
-- [ ] Documentation updated if relevant
-
----
-⭐ **Enjoying this project?**
-Support the maintainers by [**starring the repository**](${repoUrl})!`;
+                const welcomeComment = [
+                  `### 👋 Welcome @${author}!`,
+                  `Thank you for opening this pull request to **${repo}**.`,
+                  ``,
+                  `#### 📋 Quick Review Checklist`,
+                  `- [ ] Automated tests pass`,
+                  `- [ ] PR title follows conventional format (e.g. \`feat:\`, \`fix:\`, \`docs:\`)`,
+                  `- [ ] Documentation updated if relevant`,
+                  ``,
+                  `---`,
+                  `⭐ **Enjoying this project?**`,
+                  `Support the maintainers by [**starring the repository**](${repoUrl})!`,
+                ].join('\n');
 
                 await github.rest.issues.createComment({
                   owner,
@@ -208,12 +210,14 @@ Support the maintainers by [**starring the repository**](${repoUrl})!`;
               }
             } else if (context.payload.action === 'closed') {
               if (pr.merged) {
-                const mergedComment = `### 🎉 Congratulations @${author}!
-Your pull request has been successfully **merged** into \`${pr.base.ref}\`.
-
-Thank you for contributing to **${repo}**. Every contribution makes this project better!
-
-⭐ If you have not yet, please consider [**starring the repository**](${repoUrl}) to show your support!`;
+                const mergedComment = [
+                  `### 🎉 Congratulations @${author}!`,
+                  `Your pull request has been successfully **merged** into \`${pr.base.ref}\`.`,
+                  ``,
+                  `Thank you for contributing to **${repo}**. Every contribution makes this project better!`,
+                  ``,
+                  `⭐ If you have not yet, please consider [**starring the repository**](${repoUrl}) to show your support!`,
+                ].join('\n');
 
                 await github.rest.issues.createComment({
                   owner,
