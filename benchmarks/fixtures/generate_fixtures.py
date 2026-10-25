@@ -1130,10 +1130,10 @@ def main(argv: list[str] | None = None) -> int:
             ep = f"healthy-{idx:02d}"
             rng = random.Random(f"{ep}/seed")
             events = builder(ep, rng)
-            record: dict = {"episode_id": ep, "label": None, "events": events}
+            healthy_record: dict = {"episode_id": ep, "label": None, "events": events}
             if variant != "standard":
-                record["config"] = variant
-            healthy_lines.append(json.dumps(record, sort_keys=True))
+                healthy_record["config"] = variant
+            healthy_lines.append(json.dumps(healthy_record, sort_keys=True))
             idx += 1
 
     save_baseline(build_goal_drift_baseline(), str(ns.out / "goal_drift_baseline.json"))
