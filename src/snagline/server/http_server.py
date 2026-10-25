@@ -1211,6 +1211,8 @@ def make_handler(
                 spent = len(chunk)
                 pending -= spent
                 budget -= spent
+            if pending == 0:
+                self.rfile.read(2)  # trailing CRLF of the pending chunk
             while budget > 0:
                 line = self.rfile.readline(_MAX_FRAME_LINE_BYTES)
                 if not line:
