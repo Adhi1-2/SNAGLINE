@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   similar-but-distinct actions, and `loop_near_duplicate_enabled=True` in
   `harness_config`. The detection-accuracy table now covers all 18 shipped
   triggers at macro-F1 0.954 (#609).
+- `LoopDetector` loop-family arbitration: when `stall` or `cycle` fires, the
+  risk declares via `supersedes` and `superseded_step_ids` which earlier coarse
+  `loop` findings it replaces for that episode, allowing evaluation harnesses
+  and consumers to retire superseded findings without silencing real-time
+  dispatches (#604).
 - `EsnCusumDetector` (the `snagline[ml]` extra) now participates in
   `Monitor.snapshot()`/`restore()`. It had no `dump_state`/`load_state`, and
   `MLOrchestrator.dump_state` reaches its bases with a `getattr` guard, so the
