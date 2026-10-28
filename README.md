@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+" /></a>
   <a href="https://pypi.org/project/snagline/"><img src="https://img.shields.io/pypi/v/snagline?style=flat-square&label=PyPI" alt="PyPI" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Proprietary-red?style=flat-square" alt="License" /></a>
   <a href="https://github.com/Cyrax321/SNAGLINE/issues"><img src="https://img.shields.io/github/issues/Cyrax321/SNAGLINE?style=flat-square" alt="Issues" /></a>
   <a href="https://github.com/Cyrax321/SNAGLINE/actions/workflows/ci.yml"><img src="https://github.com/Cyrax321/SNAGLINE/actions/workflows/ci.yml/badge.svg?style=flat-square" alt="Tests" /></a>
 </p>
@@ -803,7 +803,7 @@ For a full account of what is verified, believed, and neither, see the [issue tr
 
 ## Contributing
 
-Contributions are welcome. This project is open source under Apache-2.0 and deliberately built to be extended: by researchers validating detection semantics, by engineers adding new adapters or detectors, and by anyone turning the planned roadmap into reality. A good place to start is the `good first issue` label on the [issue tracker](https://github.com/Cyrax321/SNAGLINE/issues).
+Contributions are considered strictly subject to the project's intellectual property terms. Anyone wishing to propose changes or contribute code must receive prior authorization from Under Research.
 
 - [docs/ADAPTER_GUIDE.md](docs/ADAPTER_GUIDE.md) -- wire any framework into SNAGLINE in an afternoon.
 - [docs/DETECTOR_GUIDE.md](docs/DETECTOR_GUIDE.md) -- the detector contract, constraints, and test shape.
@@ -828,21 +828,20 @@ Open an issue before submitting large PRs.
 
 ## License
 
-Apache-2.0 - see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+**Proprietary** - Copyright (c) 2026 Under Research. All Rights Reserved. See [LICENSE](LICENSE).
 
-Apache-2.0 is permissive: anyone may use, modify and redistribute this code,
-including commercially, provided the copyright and license notices travel with
-redistributions. It adds two things MIT did not have: an express patent grant
-from every contributor, and an explicit requirement that modified files carry
-prominent change notices.
+### Proprietary Status
+This software is the exclusive proprietary and confidential property of Under Research (represented by Cyrax321). All rights are strictly reserved worldwide. No permission, license, or authorization is granted to copy, reproduce, modify, merge, adapt, create derivative works of, publish, distribute, sublicense, sell, repackage, rebrand, decompile, train machine learning models on, or commercially exploit any portion of the software without prior, express written authorization from Under Research.
 
-Releases up to and including `0.1.0` were MIT-licensed and remain so in
-perpetuity -- the MIT grant to anyone who received those versions is not
-revoked. Apache-2.0 applies from the next release onward.
+### Legal Enforcement
+Under Research actively protects its intellectual property and reserves all rights to initiate civil litigation and pursue all available remedies, including immediate ex-parte temporary restraining orders, preliminary and permanent injunctions, Anton Piller search and seizure orders, John Doe / Ashok Kumar orders, actual and statutory damages, full disgorgement of profits, and recovery of attorney/advocate fees across all competent jurisdictions worldwide.
 
-The **detector ideas** are not licensed and cannot be: copyright covers code,
-not concepts. Anyone may reimplement the loop, cascade, CUSUM or stagnation
-detectors from scratch. What this license governs is the implementation.
+### Inquiries & Commercial Licensing
+For enterprise licensing, commercial deployment agreements, or authorization inquiries, please contact:
+- **Entity**: Under Research
+- **Authorized Representative**: Cyrax321
+- **Official Contact**: [research@underresearch.com](mailto:research@underresearch.com)
+- **Official Repository**: [https://github.com/Cyrax321/SNAGLINE](https://github.com/Cyrax321/SNAGLINE)
 
 ---
 
