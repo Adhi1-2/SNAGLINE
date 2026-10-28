@@ -76,3 +76,9 @@ without prior, express, written authorization executed by Under Research:
       underlying algorithms of any binary, byte-compiled, or obfuscated component,
       except strictly where such prohibition is expressly invalid under
       non-waivable statutory law.
+
+  (g) ARTIFICIAL INTELLIGENCE & MACHINE LEARNING INGESTION: You shall not use,
+      ingest, scrape, tokenize, or process the Software, its code, structure, or
+      documentation as training data, fine-tuning data, validation data, or
+      ground truth for any machine learning model, large language model (LLM),
+      code synthesis engine, neural network, or artificial intelligence system.
