@@ -70,3 +70,9 @@ without prior, express, written authorization executed by Under Research:
   (e) REBRANDING & REPACKAGING: You shall not repackage, rebrand, rename, or
       redistribute the Software, or any derivative or subset thereof, under a
       different name, moniker, trade name, organization, or corporate entity.
+
+  (f) REVERSE ENGINEERING: You shall not decompile, disassemble, reverse engineer,
+      or attempt to reconstruct or discover the source code, internal logic, or
+      underlying algorithms of any binary, byte-compiled, or obfuscated component,
+      except strictly where such prohibition is expressly invalid under
+      non-waivable statutory law.
