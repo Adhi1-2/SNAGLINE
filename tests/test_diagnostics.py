@@ -1,3 +1,5 @@
+import pytest
+
 from snagline.diagnostics import DiagnosticMetrics
 
 
@@ -30,3 +32,29 @@ def test_diagnostic_metrics_percentile():
     assert metrics.percentile("lat", 0.0) == 10.0
     assert metrics.percentile("lat", 100.0) == 50.0
     assert metrics.percentile("missing", 50.0) is None
+
+
+# Issue #728: max_samples is the capacity cap record_timing keeps against, so
+# it must be validated like BoundedEventBuffer's capacity, not trusted.
+def test_max_samples_zero_rejected():
+    with pytest.raises(ValueError, match="max_samples"):
+        DiagnosticMetrics(max_samples=0)
+
+
+def test_max_samples_negative_rejected():
+    with pytest.raises(ValueError, match="max_samples"):
+        DiagnosticMetrics(max_samples=-5)
+
+
+def test_max_samples_nan_rejected():
+    # NaN disables the cap (len(series) >= NaN is always False), voiding the
+    # "bounded memory usage" guarantee in docs/diagnostics.md.
+    with pytest.raises(ValueError, match="max_samples"):
+        DiagnosticMetrics(max_samples=float("nan"))  # type: ignore[arg-type]
+
+
+def test_max_samples_one_keeps_only_newest():
+    metrics = DiagnosticMetrics(max_samples=1)
+    for value in (1.0, 2.0):
+        metrics.record_timing("latency", value)
+    assert metrics.timings["latency"] == [2.0]

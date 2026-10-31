@@ -19,6 +19,32 @@ class DiagnosticMetrics:
     timings: dict[str, list[float]] = field(default_factory=dict)
     max_samples: int = DEFAULT_MAX_SAMPLES
 
+    def __post_init__(self) -> None:
+        """Validate the capacity cap before any series is touched.
+
+        ``record_timing`` keeps the ``max_samples`` most recent values, and
+        ``docs/diagnostics.md`` guarantees "bounded memory usage" via a "fixed
+        ring-buffer capacity per metric series". A cap of 0 or less makes that
+        method ``pop()`` an empty list -- ``IndexError`` on the first sample --
+        and a NaN cap makes ``len(series) >= max_samples`` always False, so the
+        series grows without bound and the documented guarantee is void
+        (issue #728). Rejected here, at construction, following the sibling
+        ``BoundedEventBuffer`` capacity guard in ``buffer.py``.
+        """
+        try:
+            # int() raises ValueError for NaN and non-numeric values, and
+            # OverflowError for an infinite literal.
+            n = int(self.max_samples)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                f"max_samples must be a positive integer; got {self.max_samples!r}"
+            ) from exc
+        if n <= 0:
+            raise ValueError(
+                f"max_samples must be a positive integer; got {self.max_samples!r}"
+            )
+        self.max_samples = n
+
     def record_counter(self, name: str, increment: int = 1) -> None:
         """Increment named counter by specified non-negative amount."""
         if not name:
