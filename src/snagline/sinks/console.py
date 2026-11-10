@@ -19,8 +19,8 @@ stderr via a raw stream, but it can also be routed through the ``logging``
 module (``logger=``) or to any text ``stream`` (stdout, a file, etc.) -- so
 operators can fold SNAGLINE alerts into their existing log pipeline (issue #13).
 
-By design it only ever serializes ``FailureRisk`` fields (ids, score, trigger,
-detail, timestamp) -- never ``StepEvent.metadata`` -- so this sink cannot
+By design it only ever serializes ``FailureRisk`` fields (ids, score, severity,
+trigger, detail, timestamp) -- never ``StepEvent.metadata`` -- so this sink cannot
 become an accidental data-exfiltration path (project.md §11).
 """
 
@@ -135,6 +135,7 @@ class ConsoleSink:
             "episode_id": risk.episode_id,
             "step_id": risk.step_id,
             "score": risk.score,
+            "severity": risk.severity,
             "trigger": risk.trigger,
             "detail": risk.detail,
             "timestamp": risk.timestamp,

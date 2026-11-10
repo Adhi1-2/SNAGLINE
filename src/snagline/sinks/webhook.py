@@ -25,8 +25,8 @@ wrapper would swallow a raise anyway, but this sink keeps its own failure
 handling so a dead endpoint stays silent even when the Monitor runs with
 ``fail_open=False``.
 
-Privacy: only ``FailureRisk`` fields are transmitted (score, trigger, ids,
-detail, timestamp) -- never ``StepEvent.metadata`` (project.md §11).
+Privacy: only ``FailureRisk`` fields are transmitted (score, severity, trigger,
+ids, detail, timestamp) -- never ``StepEvent.metadata`` (project.md §11).
 """
 
 from __future__ import annotations
@@ -95,6 +95,7 @@ class WebhookSink:
             "episode_id": risk.episode_id,
             "step_id": risk.step_id,
             "score": risk.score,
+            "severity": risk.severity,
             "trigger": risk.trigger,
             "detail": risk.detail,
             "timestamp": risk.timestamp,

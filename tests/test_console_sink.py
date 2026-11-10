@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 import pytest
@@ -41,6 +42,15 @@ def test_console_sink_routes_through_logger():
         logger.removeHandler(cap)
     assert len(records) == 1
     assert '"trigger": "loop"' in records[0].getMessage()
+
+
+def test_console_sink_serializes_explicit_severity() -> None:
+    import io
+
+    buf = io.StringIO()
+    sink = ConsoleSink(stream=buf)
+    sink.emit(FailureRisk("ep", "step", 0.9, "loop", "detail", 1.0, severity="info"))
+    assert json.loads(buf.getvalue())["severity"] == "info"
 
 
 def test_console_sink_is_fire_and_forget_on_broken_stream() -> None:
