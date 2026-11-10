@@ -89,6 +89,7 @@ def observe_openai_call(
     result: Any | None = None,
     step_id: str | None = None,
     side_effect: bool = False,
+    intent: str | None = None,
 ) -> StepEvent:
     """Observe a single OpenAI call as a ``StepEvent`` and ingest it.
 
@@ -96,7 +97,10 @@ def observe_openai_call(
     If ``result`` is given, tokens are extracted from ``result.usage``.
     Returns the ingested event. ``side_effect=True`` marks the call as a
     non-idempotent action (issue #88); set it only from your own knowledge
-    of what the call does, never heuristically.
+    of what the call does, never heuristically. ``intent`` is the
+    host-declared purpose of the call (issue #603), forwarded untouched so
+    intent-aware detectors like ``GoalDriftDetector`` see it; pass ``None``
+    when the host does not declare one.
     """
     sig_text = str(messages or prompt or "")
     # Include model + message shape hash; exclude volatile content already hashed.
@@ -118,6 +122,7 @@ def observe_openai_call(
         tokens_out=tokens_out,
         metadata={"adapter": "openai"},
         side_effect=side_effect,
+        intent=intent,
     )
     with contextlib.suppress(Exception):
         monitor.ingest(event)

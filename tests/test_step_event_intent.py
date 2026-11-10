@@ -63,3 +63,64 @@ def test_signature_helper_ignores_intent():
     a = make_signature("tool_call", "search", "q")
     b = make_signature("tool_call", "search", "q")
     assert a == b
+
+
+# --- SDK observation functions (issue #773) ----------------------------------
+# watch() was updated for #603 but observe_openai_call/observe_anthropic_call
+# were not: neither accepted intent, so hosts observing LLM calls through the
+# SDK adapters could not declare step intent at all and GoalDriftDetector never
+# saw one from that path. The pass-through contract here is the same one the
+# raw adapter obeys: forward exactly what the host declared, nothing derived.
+
+
+def test_openai_observe_passes_intent_through():
+    from snagline.adapters.openai import observe_openai_call
+
+    mon = _RecordingMonitor()
+    event = observe_openai_call(
+        mon,
+        episode_id="ep",
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "hi"}],
+        intent="research financial records",
+    )
+    assert event.intent == "research financial records"
+    assert mon.events == [event]
+
+
+def test_anthropic_observe_passes_intent_through():
+    from snagline.adapters.anthropic import observe_anthropic_call
+
+    mon = _RecordingMonitor()
+    event = observe_anthropic_call(
+        mon,
+        episode_id="ep",
+        model="claude-3-5-sonnet-20241022",
+        messages=[{"role": "user", "content": "hi"}],
+        intent="research financial records",
+    )
+    assert event.intent == "research financial records"
+    assert mon.events == [event]
+
+
+def test_sdk_observe_intent_defaults_to_none():
+    # Callers that do not declare an intent must be unchanged: the field
+    # defaults to None, matching pre-#773 behaviour exactly.
+    from snagline.adapters.anthropic import observe_anthropic_call
+    from snagline.adapters.openai import observe_openai_call
+
+    mon = _RecordingMonitor()
+    openai_event = observe_openai_call(
+        mon,
+        episode_id="ep",
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+    anthropic_event = observe_anthropic_call(
+        mon,
+        episode_id="ep",
+        model="claude-3-5-sonnet-20241022",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+    assert openai_event.intent is None
+    assert anthropic_event.intent is None
