@@ -19,6 +19,7 @@ Provides in-memory performance profiling and event step rate counters.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 DEFAULT_WINDOW_SECONDS = 120
@@ -53,6 +54,8 @@ class DiagnosticMetrics:
         """Record sample value into named latency series with capacity cap."""
         if not name:
             raise ValueError("timing name cannot be empty")
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError("timing value must be a non-negative finite number")
         if name not in self.timings:
             self.timings[name] = []
         series = self.timings[name]
