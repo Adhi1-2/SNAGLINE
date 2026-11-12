@@ -22,8 +22,9 @@ rather than propagated. Only when ``fail_open=False`` is explicitly set do
 exceptions propagate -- useful for tests and for callers who want strict
 behavior.
 
-The lock is per-instance, so a single Monitor can be shared across multiple
-episodes / threads concurrently.
+Ingest locks are sharded by ``episode_id`` through the ``StateBackend``, so a
+single Monitor can serve multiple episodes concurrently while events within
+one episode serialize.
 """
 
 from __future__ import annotations
@@ -439,7 +440,7 @@ class Monitor:
         Never raises under the default ``fail_open=True``. With
         ``fail_open=False``, a detector or sink exception propagates.
 
-        Detection runs under a per-instance lock, but dispatch to sinks happens
+        Detection runs under a per-episode lock, but dispatch to sinks happens
         *outside* that lock (issue #8): a slow or network-bound sink (e.g. the
         webhook sink) must not block concurrent ``ingest`` calls, and a sink
         that re-enters ``ingest`` must not deadlock. The enforcement policy
