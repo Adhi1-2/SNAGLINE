@@ -71,7 +71,7 @@ with watch(monitor, "ep-1") as step:
 Any detected failure is printed as a JSON line to stderr:
 
 ```json
-{"episode_id": "ep-1", "step_id": "2", "score": 0.5, "trigger": "loop", "detail": "action repeated 3x in last 3 steps", "timestamp": 1718300000.0}
+{"episode_id": "ep-1", "step_id": "2", "score": 0.5, "severity": "warning", "trigger": "loop", "detail": "action repeated 3x in last 3 steps", "timestamp": 1718300000.0}
 ```
 
 **Run the proof yourself.** These scripts are the primary evidence, verified end to end rather than described:
@@ -676,7 +676,7 @@ snagline watch --file /var/log/agent/events.jsonl --follow
 | **StepEvent** | The canonical wire format. Five fields are load-bearing for tier-1 detection: `step_id`, `episode_id`, `timestamp`, `action_signature`, `error`. Everything else is optional. |
 | **Monitor** | The orchestrator. Runs every registered detector against each ingested event. Fail-open by default: exceptions are caught, logged, and never propagated. |
 | **Detector** | A protocol: `observe(event) -> FailureRisk | None`. O(1) amortized per step. Returns a risk or nothing. |
-| **FailureRisk** | The signal. Carries no raw content, no metadata. Just ids, score, trigger, detail, and timestamp. |
+| **FailureRisk** | The signal. Carries no raw content, no metadata. Includes ids, score, severity, trigger, detail, and timestamp. |
 | **Sink** | The escalation path: `emit(risk) -> None`. Fire-and-forget, never blocks ingest. |
 | **Action signature** | A one-way SHA-256 digest of the logical action. Volatile fields (timestamps, nonces, retry counters) must be excluded so retries look like retries, not unique actions. |
 | **Episode** | A logical unit of work (a single agent run, a user session). Per-episode state is isolated and MUST be cleared via `monitor.end_episode()` when the episode is finished; otherwise the Monitor evicts the least-recently-seen episode once `max_live_episodes` (default 10000, env `SNAGLINE_MAX_LIVE_EPISODES`) is exceeded. Eviction is silent (no finalize risks) and retains only episode ids, never content. |
@@ -738,7 +738,7 @@ Detectors reason only about **hashes, timings, counts, and booleans** -- never r
 - **Action signatures** are one-way SHA-256 digests. Even if an adapter author includes sensitive values in the hash input, the signature itself is not reversible.
 - **FailureRisk** deliberately carries no `metadata` field. An alerting channel (webhook, Slack) cannot become an accidental data-exfiltration path.
 - **The `metadata` dict** on `StepEvent` is the one place raw content could leak if an adapter author puts it there. Detectors never read `metadata`, and sinks should not forward it by default.
-- **The webhook sink** transmits only `FailureRisk` fields (ids, score, trigger, detail, timestamp) -- never `StepEvent.content` or `StepEvent.metadata`.
+- **The webhook sink** transmits only `FailureRisk` fields (ids, score, severity, trigger, detail, timestamp) -- never `StepEvent.content` or `StepEvent.metadata`.
  - **The halt webhook (enforcement, issue #93)** deserves special respect: unlike the alerting webhook, its response holds CONTROL -- a `"pause"` directive can stop your agent. Treat that endpoint as privileged infrastructure: bind it to localhost or reach it through an authenticated reverse proxy (same guidance as the sidecar below, copy-paste configs in [docs/ATTACH_ANY_SYSTEM.md](docs/ATTACH_ANY_SYSTEM.md#sidecar-tls-reverse-proxy-termination-issue-103)), and never expose it to networks you do not control. The POST body carries only `FailureRisk` fields, but whoever can answer it can steer the host. The fail-open contract still applies to the client side: timeout or error defaults to continue, so a DOWNED halt endpoint degrades to detection-only rather than blocking the agent.
  - **The HTTP sidecar** serves plain HTTP and accepts arbitrary `StepEvent` JSON from any caller. For production use, front it with a reverse proxy that enforces authentication and terminates TLS; copy-paste nginx and Caddy configs are in [docs/ATTACH_ANY_SYSTEM.md](docs/ATTACH_ANY_SYSTEM.md#sidecar-tls-reverse-proxy-termination-issue-103). The sidecar can also terminate TLS itself with `--certfile/--keyfile` ([#120](https://github.com/Cyrax321/SNAGLINE/issues/120)); see the threat-model section of [docs/ATTACH_ANY_SYSTEM.md](docs/ATTACH_ANY_SYSTEM.md) for the invocation and trade-offs versus reverse-proxy termination.
 
