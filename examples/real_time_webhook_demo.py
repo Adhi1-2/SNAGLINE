@@ -46,6 +46,26 @@ class _AttemptTimeout(Exception):
 def _on_alarm(signum, frame):  # noqa: ANN001, ARG001 - signal handler signature
     raise _AttemptTimeout()
 
+
+# SIGALRM/alarm are Unix-only: Python's ``signal`` module does not define them
+# on Windows, and the demo crashed there on import of the handler. When they
+# are unavailable the per-attempt cap is simply skipped -- the outer BUDGET
+# deadline still bounds the run (issue #766).
+_HAS_SIGALRM = hasattr(signal, "SIGALRM") and hasattr(signal, "alarm")
+
+
+def _arm_attempt_timeout(seconds: float) -> None:
+    """Cap a single agent.stream call at ``seconds`` on platforms with SIGALRM."""
+    if _HAS_SIGALRM:
+        signal.signal(signal.SIGALRM, _on_alarm)  # type: ignore[attr-defined]
+        signal.alarm(int(seconds))  # type: ignore[attr-defined]
+
+
+def _disarm_attempt_timeout() -> None:
+    """Cancel any pending per-attempt alarm (no-op without SIGALRM)."""
+    if _HAS_SIGALRM:
+        signal.alarm(0)  # type: ignore[attr-defined]
+
 from snagline import Monitor
 from snagline.adapters.langchain_adapter import SnaglineCallbackHandler
 from snagline.config import Config
@@ -135,18 +155,18 @@ def main() -> None:
     agent = __import__("langchain.agents", fromlist=["create_agent"]).create_agent(model=model_obj, tools=_build_tools())
 
     print(f"[demo] task: {task}\n[demo] local detection + HTTP delivery to sidecar...\n")
-    signal.signal(signal.SIGALRM, _on_alarm)
     # Time-budgeted monitoring window: keep the real agent running against the
     # real model for up to BUDGET seconds. Each single stream call is capped by
     # SIGALRM (ATTEMPT_MAX) so a slow/queued free-tier model can't hang the run
     # past the window. Transient 502s are retried so the window actually fills.
+    # On Windows there is no SIGALRM, so only the BUDGET deadline applies.
     BUDGET = 270.0
     ATTEMPT_MAX = 55.0
     deadline = time.time() + BUDGET
     attempt = 0
     while time.time() < deadline:
         attempt += 1
-        signal.alarm(int(ATTEMPT_MAX))
+        _arm_attempt_timeout(ATTEMPT_MAX)
         try:
             for chunk in agent.stream(
                 {"messages": [("user", task)]},
@@ -157,15 +177,15 @@ def main() -> None:
                     content = getattr(msg, "content", None)
                     if content and getattr(msg, "type", "") in ("ai", "human", "tool"):
                         print(f"[{msg.type}] {content if isinstance(content, str) else content}")
-            signal.alarm(0)
+            _disarm_attempt_timeout()
             print(f"\n[demo] agent finished the task on attempt {attempt}.")
             break
         except _AttemptTimeout:
-            signal.alarm(0)
+            _disarm_attempt_timeout()
             print(f"\n[demo] attempt {attempt} exceeded {ATTEMPT_MAX:.0f}s (slow model); retrying...")
             time.sleep(2)
         except Exception as exc:  # fail-open: survive a transient model/API error
-            signal.alarm(0)
+            _disarm_attempt_timeout()
             print(f"\n[demo] attempt {attempt} interrupted ({type(exc).__name__}); retrying in 5s...")
             time.sleep(5)
     else:
