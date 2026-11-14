@@ -183,6 +183,7 @@ def test_client_ca_with_ssl_context_is_rejected(tmp_path):
         _resolve_ssl_context(ctx, None, None, client_ca="/tmp/ca.pem")
 
 
+@requires_openssl
 def test_resolve_sets_verify_mode_only_when_client_ca_given(tmp_path):
     ca_cert, ca_key = _generate_ca(tmp_path)
     server_cert, server_key = _generate_signed_cert(
@@ -198,6 +199,7 @@ def test_resolve_sets_verify_mode_only_when_client_ca_given(tmp_path):
     assert ctx_mtls.verify_mode == ssl.CERT_REQUIRED  # type: ignore[union-attr]
 
 
+@requires_openssl
 def test_plain_and_server_tls_modes_unchanged_without_client_ca(tmp_path):
     # Byte-for-byte unchanged: plain mode still returns None, server-TLS still
     # returns a context with CERT_NONE and no client verification.
