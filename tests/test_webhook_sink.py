@@ -49,6 +49,7 @@ def test_emit_posts_failure_risk_fields_only() -> None:
         "episode_id": "ep-1",
         "step_id": "3",
         "score": 0.5,
+        "severity": "warning",
         "trigger": "loop",
         "detail": "action repeated 3x in last 4 steps",
         "timestamp": 1718300000.0,
@@ -119,6 +120,7 @@ def test_min_severity_info_passes_everything() -> None:
         sink.emit(_risk_with_severity("warning"))
         sink.emit(_risk_with_severity("critical"))
     assert len(posted) == 3
+    assert [body["severity"] for body in posted] == ["info", "warning", "critical"]
 
 
 def test_min_severity_critical_suppresses_lower() -> None:

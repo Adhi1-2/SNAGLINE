@@ -1,3 +1,17 @@
+# Copyright 2026 SNAGLINE contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Webhook sink -- POST ``FailureRisk`` JSON to any HTTP endpoint (zero dependency).
 
 Uses only stdlib ``urllib.request`` (project.md §8). Fire-and-forget with a
@@ -11,8 +25,8 @@ wrapper would swallow a raise anyway, but this sink keeps its own failure
 handling so a dead endpoint stays silent even when the Monitor runs with
 ``fail_open=False``.
 
-Privacy: only ``FailureRisk`` fields are transmitted (score, trigger, ids,
-detail, timestamp) -- never ``StepEvent.metadata`` (project.md §11).
+Privacy: only ``FailureRisk`` fields are transmitted (score, severity, trigger,
+ids, detail, timestamp) -- never ``StepEvent.metadata`` (project.md §11).
 """
 
 from __future__ import annotations
@@ -81,6 +95,7 @@ class WebhookSink:
             "episode_id": risk.episode_id,
             "step_id": risk.step_id,
             "score": risk.score,
+            "severity": risk.severity,
             "trigger": risk.trigger,
             "detail": risk.detail,
             "timestamp": risk.timestamp,

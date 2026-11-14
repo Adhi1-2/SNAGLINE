@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+" /></a>
   <a href="https://pypi.org/project/snagline/"><img src="https://img.shields.io/pypi/v/snagline?style=flat-square&label=PyPI" alt="PyPI" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Proprietary-red?style=flat-square" alt="License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License" /></a>
   <a href="https://github.com/Cyrax321/SNAGLINE/issues"><img src="https://img.shields.io/github/issues/Cyrax321/SNAGLINE?style=flat-square" alt="Issues" /></a>
   <a href="https://github.com/Cyrax321/SNAGLINE/actions/workflows/ci.yml"><img src="https://github.com/Cyrax321/SNAGLINE/actions/workflows/ci.yml/badge.svg?style=flat-square" alt="Tests" /></a>
 </p>
@@ -71,7 +71,7 @@ with watch(monitor, "ep-1") as step:
 Any detected failure is printed as a JSON line to stderr:
 
 ```json
-{"episode_id": "ep-1", "step_id": "2", "score": 0.5, "trigger": "loop", "detail": "action repeated 3x in last 3 steps", "timestamp": 1718300000.0}
+{"episode_id": "ep-1", "step_id": "2", "score": 0.5, "severity": "warning", "trigger": "loop", "detail": "action repeated 3x in last 3 steps", "timestamp": 1718300000.0}
 ```
 
 **Run the proof yourself.** These scripts are the primary evidence, verified end to end rather than described:
@@ -676,7 +676,7 @@ snagline watch --file /var/log/agent/events.jsonl --follow
 | **StepEvent** | The canonical wire format. Five fields are load-bearing for tier-1 detection: `step_id`, `episode_id`, `timestamp`, `action_signature`, `error`. Everything else is optional. |
 | **Monitor** | The orchestrator. Runs every registered detector against each ingested event. Fail-open by default: exceptions are caught, logged, and never propagated. |
 | **Detector** | A protocol: `observe(event) -> FailureRisk | None`. O(1) amortized per step. Returns a risk or nothing. |
-| **FailureRisk** | The signal. Carries no raw content, no metadata. Just ids, score, trigger, detail, and timestamp. |
+| **FailureRisk** | The signal. Carries no raw content, no metadata. Includes ids, score, severity, trigger, detail, and timestamp. |
 | **Sink** | The escalation path: `emit(risk) -> None`. Fire-and-forget, never blocks ingest. |
 | **Action signature** | A one-way SHA-256 digest of the logical action. Volatile fields (timestamps, nonces, retry counters) must be excluded so retries look like retries, not unique actions. |
 | **Episode** | A logical unit of work (a single agent run, a user session). Per-episode state is isolated and MUST be cleared via `monitor.end_episode()` when the episode is finished; otherwise the Monitor evicts the least-recently-seen episode once `max_live_episodes` (default 10000, env `SNAGLINE_MAX_LIVE_EPISODES`) is exceeded. Eviction is silent (no finalize risks) and retains only episode ids, never content. |
@@ -738,7 +738,7 @@ Detectors reason only about **hashes, timings, counts, and booleans** -- never r
 - **Action signatures** are one-way SHA-256 digests. Even if an adapter author includes sensitive values in the hash input, the signature itself is not reversible.
 - **FailureRisk** deliberately carries no `metadata` field. An alerting channel (webhook, Slack) cannot become an accidental data-exfiltration path.
 - **The `metadata` dict** on `StepEvent` is the one place raw content could leak if an adapter author puts it there. Detectors never read `metadata`, and sinks should not forward it by default.
-- **The webhook sink** transmits only `FailureRisk` fields (ids, score, trigger, detail, timestamp) -- never `StepEvent.content` or `StepEvent.metadata`.
+- **The webhook sink** transmits only `FailureRisk` fields (ids, score, severity, trigger, detail, timestamp) -- never `StepEvent.content` or `StepEvent.metadata`.
  - **The halt webhook (enforcement, issue #93)** deserves special respect: unlike the alerting webhook, its response holds CONTROL -- a `"pause"` directive can stop your agent. Treat that endpoint as privileged infrastructure: bind it to localhost or reach it through an authenticated reverse proxy (same guidance as the sidecar below, copy-paste configs in [docs/ATTACH_ANY_SYSTEM.md](docs/ATTACH_ANY_SYSTEM.md#sidecar-tls-reverse-proxy-termination-issue-103)), and never expose it to networks you do not control. The POST body carries only `FailureRisk` fields, but whoever can answer it can steer the host. The fail-open contract still applies to the client side: timeout or error defaults to continue, so a DOWNED halt endpoint degrades to detection-only rather than blocking the agent.
  - **The HTTP sidecar** serves plain HTTP and accepts arbitrary `StepEvent` JSON from any caller. For production use, front it with a reverse proxy that enforces authentication and terminates TLS; copy-paste nginx and Caddy configs are in [docs/ATTACH_ANY_SYSTEM.md](docs/ATTACH_ANY_SYSTEM.md#sidecar-tls-reverse-proxy-termination-issue-103). The sidecar can also terminate TLS itself with `--certfile/--keyfile` ([#120](https://github.com/Cyrax321/SNAGLINE/issues/120)); see the threat-model section of [docs/ATTACH_ANY_SYSTEM.md](docs/ATTACH_ANY_SYSTEM.md) for the invocation and trade-offs versus reverse-proxy termination.
 
@@ -829,9 +829,9 @@ For a full account of what is verified, believed, and neither, see the [issue tr
 
 ## Contributing
 
-Contributions are considered strictly subject to the project's intellectual property terms. Anyone wishing to propose changes or contribute code must receive prior authorization from Under Research.
+Contributions are welcome! SNAGLINE is an open-source project licensed under the Apache License, Version 2.0. Whether you are fixing bugs, improving docs, adding framework adapters, or creating new detectors, your help is appreciated and contributors are warmly welcome.
 
-For the contributor guide — setup, the CI gates and their real output, the issue bar, and what a pull request is expected to carry — see [CONTRIBUTING.md](CONTRIBUTING.md).
+For the full contributor guide — setup, the CI gates and their real output, the issue bar, and what a pull request is expected to carry — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - [docs/ADAPTER_GUIDE.md](docs/ADAPTER_GUIDE.md) -- wire any framework into SNAGLINE in an afternoon.
 - [docs/DETECTOR_GUIDE.md](docs/DETECTOR_GUIDE.md) -- the detector contract, constraints, and test shape.
@@ -860,20 +860,25 @@ Open an issue before submitting large PRs.
 
 ## License
 
-**Proprietary** - Copyright (c) 2026 Under Research. All Rights Reserved. See [LICENSE](LICENSE).
+SNAGLINE is released under the [Apache License, Version 2.0](LICENSE).
 
-### Proprietary Status
-This software is the exclusive proprietary and confidential property of Under Research (represented by Cyrax321). All rights are strictly reserved worldwide. No permission, license, or authorization is granted to copy, reproduce, modify, merge, adapt, create derivative works of, publish, distribute, sublicense, sell, repackage, rebrand, decompile, train machine learning models on, or commercially exploit any portion of the software without prior, express written authorization from Under Research.
+```text
+Copyright 2026 SNAGLINE contributors
 
-### Legal Enforcement
-Under Research actively protects its intellectual property and reserves all rights to initiate civil litigation and pursue all available remedies, including immediate ex-parte temporary restraining orders, preliminary and permanent injunctions, Anton Piller search and seizure orders, John Doe / Ashok Kumar orders, actual and statutory damages, full disgorgement of profits, and recovery of attorney/advocate fees across all competent jurisdictions worldwide.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-### Inquiries & Commercial Licensing
-For enterprise licensing, commercial deployment agreements, or authorization inquiries, please contact:
-- **Entity**: Under Research
-- **Authorized Representative**: Cyrax321
-- **Official Contact**: [research@underresearch.com](mailto:research@underresearch.com)
-- **Official Repository**: [https://github.com/Cyrax321/SNAGLINE](https://github.com/Cyrax321/SNAGLINE)
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+See [LICENSE](LICENSE) for the full license text, and [NOTICE](NOTICE) for attribution and provenance records.
 
 ---
 

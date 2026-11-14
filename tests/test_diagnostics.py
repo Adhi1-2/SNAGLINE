@@ -17,6 +17,17 @@ def test_diagnostic_metrics_timings():
     assert len(metrics.timings["step_latency_ms"]) == 2
 
 
+@pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf"), float("-inf")])
+def test_diagnostic_metrics_rejects_invalid_timing(value: float) -> None:
+    metrics = DiagnosticMetrics(max_samples=1)
+    metrics.record_timing("latency", 0)
+    with pytest.raises(
+        ValueError, match="^timing value must be a non-negative finite number$"
+    ):
+        metrics.record_timing("latency", value)
+    assert metrics.timings["latency"] == [0]
+
+
 def test_diagnostic_metrics_ring_buffer_cap():
     metrics = DiagnosticMetrics(max_samples=3)
     for i in range(5):

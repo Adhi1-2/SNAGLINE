@@ -1,3 +1,17 @@
+# Copyright 2026 SNAGLINE contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Console sink -- the default escalation target (zero dependency).
 
 Writes each ``FailureRisk`` as a single JSON line. By default it goes to
@@ -5,8 +19,8 @@ stderr via a raw stream, but it can also be routed through the ``logging``
 module (``logger=``) or to any text ``stream`` (stdout, a file, etc.) -- so
 operators can fold SNAGLINE alerts into their existing log pipeline (issue #13).
 
-By design it only ever serializes ``FailureRisk`` fields (ids, score, trigger,
-detail, timestamp) -- never ``StepEvent.metadata`` -- so this sink cannot
+By design it only ever serializes ``FailureRisk`` fields (ids, score, severity,
+trigger, detail, timestamp) -- never ``StepEvent.metadata`` -- so this sink cannot
 become an accidental data-exfiltration path (project.md §11).
 """
 
@@ -121,6 +135,7 @@ class ConsoleSink:
             "episode_id": risk.episode_id,
             "step_id": risk.step_id,
             "score": risk.score,
+            "severity": risk.severity,
             "trigger": risk.trigger,
             "detail": risk.detail,
             "timestamp": risk.timestamp,

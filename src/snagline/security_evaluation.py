@@ -1,3 +1,17 @@
+# Copyright 2026 SNAGLINE contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Security evaluation engine for inspecting proposed tool requests.
 
 Evaluates pre-execution requests across all security inspectors (shell security,
@@ -61,9 +75,12 @@ def evaluate_request(
 
     # Shell threat inspection
     try:
-        from snagline.shell_security import inspect_command
+        from snagline.shell_security import inspect_command, is_shell_request
 
-        if action == "execute" and res_str:
+        # An uninformative action label must not suppress shell inspection
+        # (issue #734): the CLI's `eval` defaults --action to "unknown", so a
+        # tool name or a "command" key still marks the request as shell work.
+        if res_str and is_shell_request(tool_name, action, input_map):
             for sf in inspect_command(res_str):
                 findings.append(
                     {
